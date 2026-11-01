@@ -1,0 +1,37 @@
+const express = require('express');
+const customerController = require('../controllers/customerController');
+const accountController = require('../controllers/accountController');
+const goalController = require('../controllers/goalController');
+const cardController = require('../controllers/cardController');
+const notificationController = require('../controllers/notificationController');
+const { requireAuth } = require('../middleware/sessionAccess');
+
+const router = express.Router();
+router.get('/me', customerController.currentUser);
+router.get('/transactions', requireAuth, customerController.listTransactions);
+router.post('/preferences', requireAuth, customerController.updatePreferences);
+router.post('/transfer', requireAuth, customerController.transfer);
+router.get('/scheduled-transfers', requireAuth, customerController.listScheduledTransfers);
+router.get('/transfer-reviews', requireAuth, customerController.listTransferReviews);
+router.delete('/scheduled-transfers/:id', requireAuth, customerController.cancelScheduledTransfer);
+router.get('/statement', requireAuth, customerController.downloadStatement);
+router.get('/accounts', requireAuth, accountController.listAccounts);
+router.post('/accounts/savings', requireAuth, accountController.openSavings);
+router.post('/accounts/transfer', requireAuth, accountController.transferBetweenAccounts);
+router.patch('/accounts/:id/nickname', requireAuth, accountController.renameAccount);
+router.get('/goals', requireAuth, goalController.listGoals);
+router.post('/goals', requireAuth, goalController.createGoal);
+router.post('/goals/:id/contribute', requireAuth, goalController.contribute);
+router.post('/goals/:id/withdraw', requireAuth, goalController.withdraw);
+router.get('/cards', requireAuth, cardController.listCards);
+router.patch('/cards/:type/status', requireAuth, cardController.setCardStatus);
+router.post('/cards/debit/purchase', requireAuth, cardController.debitPurchase);
+router.post('/cards/credit/purchase', requireAuth, cardController.creditPurchase);
+router.post('/cards/credit/payment', requireAuth, cardController.payCreditCard);
+router.get('/cards/credit/statement', requireAuth, cardController.creditStatement);
+router.get('/sessions', requireAuth, customerController.listSessions);
+router.delete('/sessions/:id', requireAuth, customerController.revokeSession);
+router.get('/notifications', requireAuth, notificationController.listNotifications);
+router.post('/notifications/:id/read', requireAuth, notificationController.markRead);
+
+module.exports = router;
