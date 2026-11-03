@@ -1,9 +1,47 @@
 const nodemailer = require('nodemailer');
 
-const mailer = process.env.SMTP_HOST ? nodemailer.createTransport({
+// Email over HTTPS (Brevo). Render's free plan blocks SMTP ports, so use this there.
+// Set BREVO_API_KEY and MAIL_FROM (e.g. Harborline <you@gmail.com>, the sender verified in Brevo).
+const useBrevo = Boolean(process.env.BREVO_API_KEY);
+
+function parseSender(value) {
+  const match = String(value || '').match(/^\s*(?:"?([^"<]*?)"?\s*)?<([^>]+)>\s*$/);
+  return match ? { name: (match[1] || '').trim() || 'Harborline', email: match[2].trim() } : { name: 'Harborline', email: String(value || '').trim() };
+}
+
+async function sendViaBrevo({ to, subject, text, html }) {
+  if (!process.env.MAIL_FROM) {
+    const error = new Error('Email settings are incomplete. Add MAIL_FROM.');
+    error.status = 503; error.code = 'EMAIL_DELIVERY'; throw error;
+  }
+  let response;
+  try {
+    response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ sender: parseSender(process.env.MAIL_FROM), to: [{ email: to }], subject, textContent: text, htmlContent: html || `<p>${text}</p>` }),
+      signal: AbortSignal.timeout(15000)
+    });
+  } catch (cause) {
+    console.error('Brevo request failed:', cause.name, cause.message);
+    const error = new Error('Could not reach the email service. Please try again.'); error.status = 503; error.code = 'EMAIL_DELIVERY'; throw error;
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    console.error('Brevo rejected the email:', response.status, detail.slice(0, 300));
+    const message = response.status === 401
+      ? 'Email service key is invalid. Check BREVO_API_KEY.'
+      : 'The email service rejected the message. Check that the sender address is verified in Brevo.';
+    const error = new Error(message); error.status = 503; error.code = 'EMAIL_DELIVERY'; throw error;
+  }
+  return { accepted: [to], rejected: [] };
+}
+
+const mailer = useBrevo ? { brevo: true } : process.env.SMTP_HOST ? nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT || 587),
   secure: process.env.SMTP_SECURE === 'true',
+  connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000,
   auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } : undefined
 }) : null;
 
@@ -13,6 +51,7 @@ async function sendMail({ to, subject, text, html }) {
     console.log(`[LOCAL MAIL] to=${to} subject=${subject}\n${text}`);
     return { localOnly: true, accepted: [to], rejected: [] };
   }
+  if (useBrevo) return sendViaBrevo({ to, subject, text, html });
   if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD || !process.env.MAIL_FROM) {
     const error = new Error('Email settings are incomplete. Add SMTP_USER, SMTP_PASSWORD, and MAIL_FROM.');
     error.status = 503; error.code = 'EMAIL_DELIVERY'; throw error;
@@ -35,6 +74,7 @@ async function sendMail({ to, subject, text, html }) {
 }
 
 async function checkMailer() {
+  if (useBrevo) return process.env.MAIL_FROM ? { ready: true, reason: 'Email service (Brevo) is configured.' } : { ready: false, reason: 'MAIL_FROM is required.' };
   if (!mailer) return { ready: false, reason: 'SMTP_HOST is missing.' };
   if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD || !process.env.MAIL_FROM) return { ready: false, reason: 'SMTP_USER, SMTP_PASSWORD, and MAIL_FROM are required.' };
   try { await mailer.verify(); return { ready: true, reason: 'SMTP connection and authentication are ready.' }; }

@@ -35,6 +35,7 @@ If the database username or password contains reserved URL characters, percent-e
 | `ADMIN_EMAIL` | Email used by the seeded admin account |
 | `ADMIN_PASSWORD` | Admin password; at least 16 characters with uppercase, lowercase, number, and special character in production |
 | `ADMIN_NAME` | Optional name shown for the admin |
+| `BREVO_API_KEY` | Optional. Sends email over HTTPS via Brevo; use on hosts that block SMTP (Render free plan). When set, the `SMTP_*` values are not needed. `MAIL_FROM` must be a sender verified in Brevo. |
 | `SMTP_HOST` | Gmail SMTP host, `smtp.gmail.com` |
 | `SMTP_PORT` | Gmail SMTP port, `587` |
 | `SMTP_SECURE` | `false` for port 587 |

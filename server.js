@@ -13,8 +13,8 @@ async function start() {
     throw new Error('Set SESSION_SECRET in .env to at least 32 characters.');
   }
   if (process.env.NODE_ENV === 'production' && (
-    !process.env.APP_ORIGIN || !process.env.SMTP_HOST || !process.env.MAIL_FROM ||
-    !process.env.SMTP_USER || !process.env.SMTP_PASSWORD ||
+    !process.env.APP_ORIGIN || !process.env.MAIL_FROM ||
+    (!process.env.BREVO_API_KEY && (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD)) ||
     !process.env.ADMIN_EMAIL || !isStrongPassword(process.env.ADMIN_PASSWORD, 16)
   )) {
     throw new Error('Production requires APP_ORIGIN, complete SMTP settings, and strong seeded admin credentials.');
