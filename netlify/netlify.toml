@@ -1,0 +1,14 @@
+[build]
+command = "npm install"
+publish = "public"
+functions = "netlify/functions"
+
+[functions]
+node_bundler = "esbuild"
+
+# Forward API calls to the Render backend. CHANGE the address below if your Render URL is different.
+[[redirects]]
+from = "/api/*"
+to = "https://harborline-bank.onrender.com/api/:splat"
+status = 200
+force = true
