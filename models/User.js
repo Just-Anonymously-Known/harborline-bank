@@ -3,6 +3,23 @@ const mongoose = require('mongoose');
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, maxlength: 80 },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  onboarding: {
+    phone: { type: String, trim: true, maxlength: 30 },
+    dateOfBirth: Date,
+    nationality: { type: String, trim: true, maxlength: 80 },
+    countryOfResidence: { type: String, trim: true, maxlength: 80 },
+    streetAddress: { type: String, trim: true, maxlength: 160 },
+    city: { type: String, trim: true, maxlength: 80 },
+    region: { type: String, trim: true, maxlength: 80 },
+    postalCode: { type: String, trim: true, maxlength: 20 },
+    addressCountry: { type: String, trim: true, maxlength: 80 },
+    employmentStatus: { type: String, trim: true, maxlength: 40 },
+    sourceOfFunds: { type: String, trim: true, maxlength: 60 },
+    monthlyDeposits: { type: String, trim: true, maxlength: 60 },
+    accountPurpose: { type: String, trim: true, maxlength: 60 },
+    taxResidence: { type: String, trim: true, maxlength: 80 },
+    termsAcceptedAt: Date
+  },
   passwordHash: { type: String, required: true, select: false },
   role: { type: String, enum: ['customer', 'admin'], default: 'customer', index: true },
   adminRole: { type: String, enum: ['owner', 'operations', 'auditor'], default: 'operations' },

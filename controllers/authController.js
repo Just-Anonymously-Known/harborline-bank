@@ -30,7 +30,17 @@ async function register(req, res) {
   try {
     await dbSession.withTransaction(async () => {
       const [user] = await User.create([{
-        name, email, passwordHash, emailOptIn, otpPurpose: 'signup', otpHash: hashOtp(code),
+        name, email, passwordHash, emailOptIn,
+        onboarding: {
+          phone: req.body.phone, dateOfBirth: req.body.dateOfBirth ? new Date(req.body.dateOfBirth) : undefined,
+          nationality: req.body.nationality, countryOfResidence: req.body.countryOfResidence,
+          streetAddress: req.body.streetAddress, city: req.body.city, region: req.body.region,
+          postalCode: req.body.postalCode, addressCountry: req.body.addressCountry,
+          employmentStatus: req.body.employmentStatus, sourceOfFunds: req.body.sourceOfFunds,
+          monthlyDeposits: req.body.monthlyDeposits, accountPurpose: req.body.accountPurpose,
+          taxResidence: req.body.taxResidence, termsAcceptedAt: req.body.termsAccepted ? new Date() : undefined
+        },
+        otpPurpose: 'signup', otpHash: hashOtp(code),
         otpExpires: new Date(Date.now() + 10 * 60 * 1000), otpAttempts: 0
       }], { session: dbSession });
       await Account.create([{ userId: user._id, accountNumber: await createAccountNumber(), accountType: 'checking', nickname: 'Everyday Checking' }], { session: dbSession });
