@@ -99,3 +99,27 @@ The browser interface is in `public/`. Netlify serves it as static files and rou
 5. Trigger the deploy. After changing a Netlify environment variable, trigger a new deploy so Functions receive the updated value.
 
 The frontend and API use the same site origin, so the browser can keep calling `/api/...`. MongoDB Atlas must accept connections from your deployment environment. Netlify Functions have execution limits; this app's account and email requests are designed as short request/response operations.
+
+
+## Customer communication & support
+
+The application includes:
+- Customer support tickets (`POST /api/support/tickets`) with ticket persistence in MongoDB.
+- Customer ticket history (`GET /api/support/tickets`, authenticated).
+- Admin support inbox, email replies, and status updates (`/api/admin/support/tickets`).
+- Harborline Assistant FAQ/chat endpoint (`POST /api/assistant/chat`). It is a guided FAQ assistant, not a generative AI model.
+- Automatic transaction email alerts for existing successful transfer, card, account, and savings events. Customers can manage the `transactionAlerts` preference in Security Center.
+
+Configure email delivery in `.env`:
+```env
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-mailbox-user
+SMTP_PASSWORD=your-mailbox-password
+MAIL_FROM=Harborline <no-reply@example.com>
+SUPPORT_EMAIL=support@example.com
+```
+`SUPPORT_EMAIL` is the inbox that receives submitted customer support requests. SMTP must be configured for real delivery; in development without SMTP, the mail service logs local-only messages. Do not commit credentials to source control.
+
+The chatbot answers common navigation and banking questions. It does not access balances or perform transactions; customers must use authenticated banking pages for account-specific actions. Never submit passwords, OTPs, PINs, or full card numbers in support forms or chat.

@@ -7,6 +7,7 @@ const authRoutes = require('./routes/authRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const maintenanceRoutes = require('./routes/maintenanceRoutes');
+const supportRoutes = require('./routes/supportRoutes');
 const { apiLimiter } = require('./middleware/rateLimiters');
 const { attachCsrfRoutes, requireSameOriginAndCsrf } = require('./middleware/csrfProtection');
 const { processDueTransfers } = require('./services/scheduledTransferService');
@@ -44,6 +45,7 @@ function createApp() {
   app.use('/api', apiLimiter);
   app.use('/api', (req, res, next) => { processDueTransfers().catch(error => console.error('Scheduled transfer processing failed:', error)); next(); });
   app.use('/api', authRoutes);
+  app.use('/api', supportRoutes);
   app.use('/api', customerRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/maintenance', maintenanceRoutes);
