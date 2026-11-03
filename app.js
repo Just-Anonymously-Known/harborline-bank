@@ -10,6 +10,7 @@ const maintenanceRoutes = require('./routes/maintenanceRoutes');
 const supportRoutes = require('./routes/supportRoutes');
 const { apiLimiter } = require('./middleware/rateLimiters');
 const { attachCsrfRoutes, requireSameOriginAndCsrf } = require('./middleware/csrfProtection');
+const { isAllowedOrigin } = require('./utils/origins');
 const { processDueTransfers } = require('./services/scheduledTransferService');
 
 function createApp() {
@@ -17,11 +18,10 @@ function createApp() {
   const isProduction = process.env.NODE_ENV === 'production';
   app.set('trust proxy', 1);
 
-  // Allow the deployed Netlify frontend to call this Render API with session cookies.
-  const allowedOrigin = process.env.APP_ORIGIN || 'https://harborline-bank.netlify.app';
+  // Allow the deployed Netlify frontend(s) to call this API with session cookies.
   app.use((req, res, next) => {
     const origin = req.get('origin');
-    if (origin === allowedOrigin) {
+    if (origin && isAllowedOrigin(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Vary', 'Origin');
@@ -29,7 +29,7 @@ function createApp() {
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token');
     }
     if (req.method === 'OPTIONS') {
-      if (origin !== allowedOrigin) return res.sendStatus(403);
+      if (!origin || !isAllowedOrigin(origin)) return res.sendStatus(403);
       return res.sendStatus(204);
     }
     next();
