@@ -16,13 +16,32 @@ function createApp() {
   const app = express();
   const isProduction = process.env.NODE_ENV === 'production';
   app.set('trust proxy', 1);
+
+  // Allow the deployed Netlify frontend to call this Render API with session cookies.
+  const allowedOrigin = process.env.APP_ORIGIN || 'https://harborline-bank.netlify.app';
+  app.use((req, res, next) => {
+    const origin = req.get('origin');
+    if (origin === allowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token');
+    }
+    if (req.method === 'OPTIONS') {
+      if (origin !== allowedOrigin) return res.sendStatus(403);
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
   app.use(helmet({ contentSecurityPolicy: { directives: {
     defaultSrc: ["'self'"],
     styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
     fontSrc: ["'self'", 'https://fonts.gstatic.com'],
     scriptSrc: ["'self'", "'unsafe-inline'"],
     imgSrc: ["'self'", 'data:'],
-    connectSrc: ["'self'"]
+    connectSrc: ["'self'", 'https://harborline-bank.onrender.com']
   } } }));
   app.use(express.json({ limit: '20kb' }));
   app.use(session({
@@ -37,7 +56,7 @@ function createApp() {
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 8 }
+    cookie: { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'none' : 'lax', maxAge: 1000 * 60 * 60 * 8 }
   }));
 
   app.get('/api/csrf', attachCsrfRoutes);
