@@ -9,7 +9,7 @@ function parseSender(value) {
   return match ? { name: (match[1] || '').trim() || 'Harborline', email: match[2].trim() } : { name: 'Harborline', email: String(value || '').trim() };
 }
 
-async function sendViaBrevo({ to, subject, text, html }) {
+async function sendViaBrevo({ to, subject, text, html, attachments }) {
   if (!process.env.MAIL_FROM) {
     const error = new Error('Email settings are incomplete. Add MAIL_FROM.');
     error.status = 503; error.code = 'EMAIL_DELIVERY'; throw error;
@@ -19,8 +19,10 @@ async function sendViaBrevo({ to, subject, text, html }) {
     response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ sender: parseSender(process.env.MAIL_FROM), to: [{ email: to }], subject, textContent: text, htmlContent: html || `<p>${text}</p>` }),
-      signal: AbortSignal.timeout(15000)
+      body: JSON.stringify({ sender: parseSender(process.env.MAIL_FROM), to: [{ email: to }], subject, textContent: text, htmlContent: html || `<p>${text}</p>`,
+        ...(attachments?.length ? { attachment: attachments.map(file => ({ name: file.filename, content: Buffer.from(file.content).toString('base64') })) } : {}) }),
+      
+      signal: AbortSignal.timeout(attachments?.length ? 25000 : 15000)
     });
   } catch (cause) {
     console.error('Brevo request failed:', cause.name, cause.message);
@@ -45,19 +47,19 @@ const mailer = useBrevo ? { brevo: true } : process.env.SMTP_HOST ? nodemailer.c
   auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } : undefined
 }) : null;
 
-async function sendMail({ to, subject, text, html }) {
+async function sendMail({ to, subject, text, html, attachments }) {
   if (!mailer) {
     if (process.env.NODE_ENV === 'production') throw new Error('Email delivery is not configured.');
     console.log(`[LOCAL MAIL] to=${to} subject=${subject}\n${text}`);
     return { localOnly: true, accepted: [to], rejected: [] };
   }
-  if (useBrevo) return sendViaBrevo({ to, subject, text, html });
+  if (useBrevo) return sendViaBrevo({ to, subject, text, html, attachments });
   if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD || !process.env.MAIL_FROM) {
     const error = new Error('Email settings are incomplete. Add SMTP_USER, SMTP_PASSWORD, and MAIL_FROM.');
     error.status = 503; error.code = 'EMAIL_DELIVERY'; throw error;
   }
   try {
-    return await mailer.sendMail({ from: process.env.MAIL_FROM, to, subject, text, html });
+    return await mailer.sendMail({ from: process.env.MAIL_FROM, to, subject, text, html, attachments });
   } catch (cause) {
     console.error('SMTP send failed:', {
       code: cause.code, responseCode: cause.responseCode,

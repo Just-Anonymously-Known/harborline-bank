@@ -51,7 +51,7 @@ async function transferBetweenAccounts(req, res) {
       await LedgerEntry.create([
         { transferGroup, accountId: from._id, counterpartyAccountId: to._id, counterpartyName: to.nickname || to.accountType, kind: 'transfer_out', amountCents: amount, balanceAfterCents: from.balanceCents, description: `Moved to ${to.nickname || to.accountType}`, category: 'Transfer' },
         { transferGroup, accountId: to._id, counterpartyAccountId: from._id, counterpartyName: from.nickname || from.accountType, kind: 'transfer_in', amountCents: amount, balanceAfterCents: to.balanceCents, description: `Moved from ${from.nickname || from.accountType}`, category: 'Transfer' }
-      ], { session: dbSession });
+      ], { session: dbSession, ordered: true });
     });
   } catch (error) { if (error.status) return res.status(error.status).json({ error: error.message }); throw error; }
   finally { await dbSession.endSession(); }

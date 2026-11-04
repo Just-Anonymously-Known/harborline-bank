@@ -15,6 +15,7 @@ const { statementHtml } = require('../services/statementService');
 const ScheduledTransfer = require('../models/ScheduledTransfer');
 const { processDueTransfers } = require('../services/scheduledTransferService');
 const TransferReview = require('../models/TransferReview');
+const { generateReceipt } = require('../services/fundingReceiptService');
 
 function dateRange(query) {
   const start = query.start ? new Date(`${query.start}T00:00:00.000Z`) : new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
@@ -32,8 +33,45 @@ async function downloadStatement(req, res) {
     User.findById(req.session.user.id).select('name email').lean(),
     LedgerEntry.find({ accountId: account._id, createdAt: { $gte: range.start, $lte: range.end } }).sort({ createdAt: 1 }).limit(5000).lean()
   ]);
-  res.type('html').set('Content-Disposition', 'attachment; filename="harborline-portfolio-statement.html"')
+  res.type('html').set('Content-Disposition', 'attachment; filename="harborline-statement.html"')
     .send(statementHtml({ owner, account, entries, ...range }));
+}
+
+// GET /api/receipts/:id  ->  PDF receipt for one of the signed-in customer's transactions.
+async function downloadReceipt(req, res) {
+  const id = String(req.params.id || '').replace(/\.pdf$/i, '');
+  if (!mongoose.isValidObjectId(id)) return res.status(404).json({ error: 'Receipt not found.' });
+  const owner = await User.findById(req.session.user.id).select('name email').lean();
+  if (!owner) return res.status(404).json({ error: 'Receipt not found.' });
+
+  let pdfInput;
+  const entry = await LedgerEntry.findById(id).lean();
+  if (entry) {
+    const account = await Account.findOne({ _id: entry.accountId, userId: req.session.user.id }).lean();
+    if (!account) return res.status(404).json({ error: 'Receipt not found.' });
+    const credit = ['funding', 'transfer_in', 'goal_withdrawal'].includes(entry.kind);
+    pdfInput = {
+      customer: owner, account, amount: entry.amountCents, balance: entry.balanceAfterCents,
+      previousBalance: entry.balanceAfterCents + (credit ? -entry.amountCents : entry.amountCents),
+      entry: { kind: entry.kind, reference: entry.transferGroup, createdAt: entry.createdAt, description: entry.description, category: entry.category, counterparty: entry.counterpartyName }
+    };
+    if (pdfInput.previousBalance < 0) pdfInput.previousBalance = undefined;
+  } else {
+    const purchase = await CardTransaction.findOne({ _id: id, userId: req.session.user.id }).lean();
+    if (!purchase) return res.status(404).json({ error: 'Receipt not found.' });
+    pdfInput = {
+      customer: owner, account: undefined, amount: purchase.amountCents,
+      entry: { kind: purchase.kind === 'payment' ? 'card_payment' : 'card_purchase', reference: `card-${purchase._id}`, createdAt: purchase.createdAt, description: purchase.description, category: purchase.category }
+    };
+  }
+
+  const pdf = await generateReceipt(pdfInput);
+  res.set({
+    'Content-Type': 'application/pdf',
+    'Content-Length': pdf.length,
+    'Content-Disposition': `inline; filename="harborline-receipt-${id.slice(-8)}.pdf"`,
+    'Cache-Control': 'private, no-store'
+  }).send(pdf);
 }
 
 async function currentUser(req, res) {
@@ -127,7 +165,7 @@ async function transfer(req, res) {
       const byId = new Map(locked.map(account => [String(account._id), account]));
       const from = byId.get(String(sender._id)), to = byId.get(String(recipient._id));
       if (!from || !to) throw Object.assign(new Error('Account is unavailable.'), { status: 400 });
-      if (from.balanceCents < amount) throw Object.assign(new Error('Insufficient demo funds for this transfer.'), { status: 400 });
+      if (from.balanceCents < amount) throw Object.assign(new Error('Insufficient funds for this transfer.'), { status: 400 });
       const user = await User.findById(req.session.user.id).session(dbSession);
       const dailyLimit = user.dailyTransferLimitCents || 100000;
       const accountIds = await Account.find({ userId: user._id }).distinct('_id').session(dbSession);
@@ -158,7 +196,7 @@ async function transfer(req, res) {
       await LedgerEntry.create([
         { transferGroup, accountId: from._id, counterpartyAccountId: to._id, counterpartyName: recipientUser.name, kind: 'transfer_out', amountCents: amount, balanceAfterCents: from.balanceCents, description: memo, category },
         { transferGroup, accountId: to._id, counterpartyAccountId: from._id, counterpartyName: senderUser?.name || 'Harborline customer', kind: 'transfer_in', amountCents: amount, balanceAfterCents: to.balanceCents, description: memo, category }
-      ], { session: dbSession });
+      ], { session: dbSession, ordered: true });
       await notify(user._id, 'Transfer sent', `$${money(amount)} sent to ${recipientUser.name}.`, dbSession);
       await notify(recipientUser._id, 'Transfer received', `$${money(amount)} received from ${senderUser?.name || 'a Harborline customer'}.`, dbSession);
     });
@@ -233,4 +271,4 @@ async function markNotificationRead(req, res) {
   res.json({ ok: true });
 }
 
-module.exports = { currentUser, listTransactions, updatePreferences, transfer, listSessions, revokeSession, markNotificationRead, downloadStatement, listScheduledTransfers, cancelScheduledTransfer, listTransferReviews };
+module.exports = { currentUser, listTransactions, updatePreferences, transfer, listSessions, revokeSession, markNotificationRead, downloadStatement, downloadReceipt, listScheduledTransfers, cancelScheduledTransfer, listTransferReviews };

@@ -47,7 +47,7 @@ async function processDueTransfers() {
         await LedgerEntry.create([
           { transferGroup, accountId: from._id, counterpartyAccountId: to._id, counterpartyName: recipient.name, kind: 'transfer_out', amountCents: job.amountCents, balanceAfterCents: from.balanceCents, description: job.memo, category: job.category },
           { transferGroup, accountId: to._id, counterpartyAccountId: from._id, counterpartyName: owner.name, kind: 'transfer_in', amountCents: job.amountCents, balanceAfterCents: to.balanceCents, description: job.memo, category: job.category }
-        ], { session: dbSession });
+        ], { session: dbSession, ordered: true });
         job.status = 'completed'; job.processingAt = undefined; await job.save({ session: dbSession });
         completed = true;
         await notify(owner._id, 'Scheduled transfer sent', `$${money(job.amountCents)} sent to ${recipient.name}.`, dbSession);

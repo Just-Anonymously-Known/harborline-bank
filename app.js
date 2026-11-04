@@ -35,6 +35,9 @@ function createApp() {
     next();
   });
 
+  // Lightweight check for hosting health monitors and uptime pings (no database or session needed).
+  app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
   app.use(helmet({ contentSecurityPolicy: { directives: {
     defaultSrc: ["'self'"],
     styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],

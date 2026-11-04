@@ -1,4 +1,5 @@
 const AuditLog = require('../models/AuditLog');
+const { clientIp } = require('../utils/clientIp');
 
 function recordAdminAction(req, action, targetId = '', details = {}) {
   return AuditLog.create({
@@ -6,7 +7,7 @@ function recordAdminAction(req, action, targetId = '', details = {}) {
     action,
     targetId: String(targetId),
     details: { ...details, ...(req.auditReason ? { reason: req.auditReason } : {}) },
-    ip: String(req.ip || '').slice(0, 80)
+    ip: clientIp(req)
   });
 }
 

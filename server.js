@@ -8,6 +8,8 @@ const { isStrongPassword } = require('./utils/identity');
 
 const port = Number(process.env.PORT || 3000);
 
+process.on('unhandledRejection', reason => console.error('Unhandled promise rejection:', reason));
+
 async function start() {
   if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
     throw new Error('Set SESSION_SECRET in .env to at least 32 characters.');

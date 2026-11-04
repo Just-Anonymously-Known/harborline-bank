@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const { sendMail } = require('./emailService');
-const { escapeHtml } = require('../utils/identity');
+const { renderEmail } = require('./emailTemplates');
+const { appUrl } = require('../utils/origins');
 
 async function sendTransactionAlert(userId, subject, message) {
   try {
@@ -12,7 +13,7 @@ async function sendTransactionAlert(userId, subject, message) {
       to: user.email,
       subject: `[Harborline account alert] ${safeSubject}`,
       text: `${safeMessage}\n\nIf you do not recognize this activity, contact Harborline support.`,
-      html: `<p>${escapeHtml(safeMessage)}</p><p>If you do not recognize this activity, contact Harborline support.</p>`
+      html: renderEmail({ title: safeSubject, intro: safeMessage, ctaLabel: appUrl() ? 'View your activity' : undefined, ctaUrl: appUrl() || undefined })
     });
   } catch (error) {
     console.error('Could not send transaction email alert:', error.message);

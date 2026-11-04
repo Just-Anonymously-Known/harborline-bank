@@ -3,6 +3,8 @@ const User = require('../models/User');
 const MailLog = require('../models/MailLog');
 const { mailer, sendMail, checkMailer } = require('../services/emailService');
 const { recordAdminAction } = require('../services/auditService');
+const { mapLimit } = require('../utils/async');
+const { renderEmail } = require('../services/emailTemplates');
 
 async function getPublicNotice(req, res) {
   const notice = await MaintenanceNotice.findById('global').lean();
@@ -23,7 +25,7 @@ async function scheduleNotice(req, res) {
   if (title.length < 3 || message.length < 3 || !Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime()) || endsAt <= startsAt) {
     return res.status(400).json({ error: 'Add a title, message, and valid start and end times.' });
   }
-  if (!mailer) return res.status(503).json({ error: 'Configure SMTP before sending a maintenance email.' });
+  if (!mailer) return res.status(503).json({ error: 'Configure email delivery before sending a maintenance email.' });
   const smtp = await checkMailer();
   if (!smtp.ready) return res.status(503).json({ error: smtp.reason });
   const notice = await MaintenanceNotice.findByIdAndUpdate('global', {
@@ -33,19 +35,18 @@ async function scheduleNotice(req, res) {
   const startLabel = startsAt.toLocaleString('en-US', { timeZone: 'UTC', timeZoneName: 'short' });
   const endLabel = endsAt.toLocaleString('en-US', { timeZone: 'UTC', timeZoneName: 'short' });
   const subject = `Scheduled maintenance: ${title}`;
-  const recipientResults = [];
-  for (const recipient of recipients) {
+  const recipientResults = await mapLimit(recipients, 8, async recipient => {
     try {
       const info = await sendMail({
         to: recipient.email,
         subject: `[Harborline service notice] ${subject}`,
         text: `${message}\n\nScheduled from ${startLabel} until ${endLabel}.`,
-        html: `<p>${message.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]))}</p><p>Scheduled from ${startLabel} until ${endLabel}.</p>`
+        html: renderEmail({ title: title, intro: message, rows: [['Starts', startLabel], ['Ends', endLabel]] })
       });
-      if (info?.rejected?.length) throw new Error('SMTP rejected the recipient address.');
-      recipientResults.push({ email: recipient.email, status: 'sent' });
-    } catch (error) { recipientResults.push({ email: recipient.email, status: 'failed', error: error.message }); }
-  }
+      if (info?.rejected?.length) throw new Error('The email provider rejected the recipient address.');
+      return { email: recipient.email, status: 'sent' };
+    } catch (error) { return { email: recipient.email, status: 'failed', error: error.message }; }
+  });
   const deliveredCount = recipientResults.filter(item => item.status === 'sent').length;
   const failedCount = recipientResults.length - deliveredCount;
   const deliveryStatus = failedCount === 0 ? 'sent' : deliveredCount ? 'partial' : 'failed';

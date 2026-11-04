@@ -15,3 +15,10 @@ function isAllowedOrigin(origin) {
 }
 
 module.exports = { normalizeOrigin, allowedOrigins, isAllowedOrigin };
+
+// The public address of the website (used for links inside emails).
+function appUrl() {
+  return allowedOrigins()[0] || '';
+}
+
+module.exports.appUrl = appUrl;

@@ -9,6 +9,7 @@ const DeviceSession = require('../models/DeviceSession');
 
 const { createAccountNumber } = require('../config/database');
 const { sendMail } = require('../services/emailService');
+const { renderEmail } = require('../services/emailTemplates');
 const { establishSession } = require('../services/sessionService');
 const { hashOtp, safeUser, isStrongPassword } = require('../utils/identity');
 
@@ -25,7 +26,7 @@ function localOtp(code) {
   return process.env.NODE_ENV === 'production'
     ? {}
     : {
-        devOtp: process.env.SMTP_HOST ? undefined : code
+        devOtp: process.env.SMTP_HOST || process.env.BREVO_API_KEY ? undefined : code
       };
 }
 
@@ -71,35 +72,28 @@ function clearOtp(user) {
   user.otpAttempts = 0;
 }
 
+function codeEmail(title, intro) {
+  return code => renderEmail({
+    title, intro, code,
+    note: 'This code expires in 10 minutes. If you did not request it, you can ignore this message.'
+  });
+}
+
 async function sendVerificationEmail(email, code) {
   await sendMail({
     to: email,
     subject: 'Your Harborline verification code',
     text: `Your Harborline verification code is ${code}. It expires in 10 minutes.`,
-    html:
-      `<p>Your Harborline verification code is <strong>${code}</strong>.</p>` +
-      `<p>It expires in 10 minutes. If you did not request it, you can ignore this message.</p>`
+    html: codeEmail('Verify your email', 'Enter this code to finish creating your Harborline account.')(code)
   });
 }
 
 async function sendLoginEmail(email, code, isResend = false) {
-  const subject = isResend
-    ? 'Your new Harborline sign-in code'
-    : 'Your Harborline sign-in code';
-
-  const text = isResend
-    ? `Your new Harborline sign-in code is ${code}. It expires in 10 minutes.`
-    : `Your Harborline sign-in code is ${code}. It expires in 10 minutes.`;
-
-  const html = isResend
-    ? `<p>Your new sign-in code is <strong>${code}</strong>.</p><p>It expires in 10 minutes.</p>`
-    : `<p>Your Harborline sign-in code is <strong>${code}</strong>.</p><p>It expires in 10 minutes.</p>`;
-
   await sendMail({
     to: email,
-    subject,
-    text,
-    html
+    subject: isResend ? 'Your new Harborline sign-in code' : 'Your Harborline sign-in code',
+    text: `Your ${isResend ? 'new ' : ''}Harborline sign-in code is ${code}. It expires in 10 minutes.`,
+    html: codeEmail(isResend ? 'Your new sign-in code' : 'Your sign-in code', 'Enter this code to finish signing in to Harborline.')(code)
   });
 }
 
@@ -108,9 +102,7 @@ async function sendPasswordResetEmail(email, code) {
     to: email,
     subject: 'Reset your Harborline password',
     text: `Your password reset code is ${code}. It expires in 10 minutes.`,
-    html:
-      `<p>Your password reset code is <strong>${code}</strong>.</p>` +
-      `<p>It expires in 10 minutes.</p>`
+    html: codeEmail('Reset your password', 'Enter this code to choose a new Harborline password.')(code)
   });
 }
 

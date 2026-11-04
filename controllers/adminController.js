@@ -19,6 +19,8 @@ const { recordAdminAction } = require('../services/auditService');
 const { notify } = require('../services/notificationService');
 const { sendTransactionAlert } = require('../services/emailAlertService');
 const { statementHtml } = require('../services/statementService');
+const { mapLimit } = require('../utils/async');
+const { renderEmail } = require('../services/emailTemplates');
 const { sendFundingReceipt } = require('../services/fundingReceiptService');
 
 const DEFAULT_DAILY_TRANSFER_LIMIT_CENTS = 100000;
@@ -172,11 +174,11 @@ async function fundAccount(req, res) {
 
   const dbSession = await mongoose.startSession();
 
-  let fundedUserId;
   let fundedUser;
   let fundedAccount;
   let balanceAfter;
   let ledgerEntryId;
+  let ledgerReference;
 
   try {
     await dbSession.withTransaction(async () => {
@@ -217,7 +219,6 @@ async function fundAccount(req, res) {
         );
       }
 
-      fundedUserId = owner._id;
       fundedUser = {
         id: String(owner._id),
         name: owner.name,
@@ -253,6 +254,7 @@ async function fundAccount(req, res) {
       });
 
       ledgerEntryId = String(entry._id);
+      ledgerReference = transferGroup;
 
       await notify(
         owner._id,
@@ -272,16 +274,10 @@ async function fundAccount(req, res) {
 
   // Email and receipt generation happen after the database transaction commits.
   // Email failure must not undo a successful account funding.
-  await sendSafely(
-    () => sendTransactionAlert(
-      fundedUserId,
-      'Funds credited',
-      `$${money(amount)} was added to your Harborline account.`
-    ),
-    'Funding notification'
-  );
-
-  await sendSafely(
+  // One combined "credit alert" email carries the message, a PDF receipt attachment and a receipt link.
+  // It is sent in the background so a slow email service can never delay (or time out) the funding response,
+  // which could otherwise tempt an administrator to fund the same account twice.
+  sendSafely(
     () => sendFundingReceipt({
       user: fundedUser,
       account: fundedAccount,
@@ -289,9 +285,10 @@ async function fundAccount(req, res) {
       balanceAfterCents: balanceAfter,
       description: memo,
       transactionId: ledgerEntryId,
+      reference: ledgerReference,
       transactionDate: new Date()
     }),
-    'Funding receipt email'
+    'Funding credit alert email'
   );
 
   await sendSafely(
@@ -503,7 +500,7 @@ async function downloadAccountStatement(req, res) {
   res.type('html')
     .set(
       'Content-Disposition',
-      'attachment; filename="harborline-portfolio-statement.html"'
+      'attachment; filename="harborline-statement.html"'
     )
     .send(statementHtml({ owner, account, entries, start, end }));
 }
@@ -931,7 +928,7 @@ async function emailCustomers(req, res) {
 
   if (!mailer) {
     return res.status(503).json({
-      error: 'Configure Brevo/email delivery before sending customer email.'
+      error: 'Configure email delivery before sending customer email.'
     });
   }
 
@@ -954,30 +951,24 @@ async function emailCustomers(req, res) {
   const safeSubject = subject.replace(/[\r\n]/g, ' ');
   const escapedMessage = escapeHtml(message).replace(/\n/g, '<br>');
 
-  const recipientResults = [];
-
-  for (const recipient of recipients) {
+  const recipientResults = await mapLimit(recipients, 8, async recipient => {
     try {
       const info = await sendMail({
         to: recipient.email,
         subject: `[Harborline] ${safeSubject}`,
         text: `${message}\n\nHarborline`,
-        html: `<p>${escapedMessage}</p><hr><small>Harborline</small>`
+        html: renderEmail({ title: safeSubject, intro: message })
       });
 
       if (info?.rejected?.length) {
         throw new Error('Email provider rejected the recipient.');
       }
 
-      recipientResults.push({ email: recipient.email, status: 'sent' });
+      return { email: recipient.email, status: 'sent' };
     } catch (error) {
-      recipientResults.push({
-        email: recipient.email,
-        status: 'failed',
-        error: error.message
-      });
+      return { email: recipient.email, status: 'failed', error: error.message };
     }
-  }
+  });
 
   const deliveredCount = recipientResults.filter(
     item => item.status === 'sent'

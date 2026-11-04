@@ -60,14 +60,14 @@ The seeded admin is created or refreshed from `ADMIN_EMAIL` and `ADMIN_PASSWORD`
 - Customer activity filters include text, category, direction, and date range.
 - Customers can load older activity in pages, and administrators can page through large customer lists.
 - Administrators can set a per-customer transfer review threshold. Transfers at or above it wait in a review queue; approval rechecks account status, balance, and daily limits before posting the ledger entries.
-- Customers and administrators can download a polished HTML account statement for a selected period and print or save it as PDF. Portfolio statements are watermarked and marked as samples, not official bank records.
+- Customers and administrators can download a polished HTML account statement for a selected period and print or save it as PDF. 
 - Administrators can search accounts, fund customers, create accounts, freeze/unfreeze accounts, set transfer limits, review activity, and email customers who opted in.
 - Administrators can create operations or auditor accounts and assign roles. Auditors can view records; only owners can manage administrator access. Every administrator sign-in requires an emailed one-time code.
 - The administrator email page can verify SMTP connectivity and authentication. Broadcast and maintenance mail logs show accepted and failed recipient addresses individually; SMTP failures return a safe, actionable message.
 - Balance, account, access, limit, email, and maintenance changes require an audit reason, which is stored with the administrator action.
 - Customers can change their email preference from their dashboard.
 - Customers can enable or disable email alerts for account credits and debits; transfer, admin funding, card, and savings-goal activity sends alerts when enabled.
-- Customers can rename accounts, open savings, set and fund goals, lock cards, record card activity, pay a simulated credit card, and download receipts.
+- Customers can rename accounts, open savings, set and fund goals, lock cards, record card activity, pay a credit card, and download receipts.
 - The dashboard includes activity search, spending categories, notifications, signed-in device management, credit statements, and loan/savings calculators.
 - Administrators can schedule a maintenance notice, email all verified customers, and show the notice on the site during its scheduled window.
 - Administrator actions are recorded in the audit history; balances and transfers are recorded in the ledger.
@@ -83,24 +83,25 @@ The seeded admin is created or refreshed from `ADMIN_EMAIL` and `ADMIN_PASSWORD`
 - `config/` contains MongoDB connection and administrator seeding.
 - `services/` contains email delivery.
 - `services/scheduledTransferService.js` processes due transfers with the same account status, balance, and daily limit checks as immediate transfers.
-- `netlify/functions/process-scheduled-transfers.mjs` runs the scheduled transfer worker once per minute on published Netlify deploys.
 - `models/TransferReview.js` stores administrator-review requests without changing either account balance until approval.
 - `utils/` contains money, identity, and formatting helpers.
 - `public/` contains the browser interface.
-- `netlify/functions/` adapts the Express API for Netlify Functions.
+- `services/fundingReceiptService.js` builds PDF receipts and sends the credit-alert email when an administrator funds an account.
+- `services/emailTemplates.js` is the branded HTML layout shared by account alerts, codes and notices.
 
-## Deploy to Netlify
+## Deploy (Render API + Netlify website)
 
-The browser interface is in `public/`. Netlify serves it as static files and routes `/api/*` to the Express Netlify Function in `netlify/functions/api.js`. Both deploy together as one Netlify site; the local `server.js` is for running the same app on your computer. Netlify's Express integration uses Functions and a `serverless-http` adapter, with routing configured in `netlify.toml`.
+**API on Render.** Create a Web Service from this repository (build `npm install`, start `npm start`) and add these environment variables: `NODE_ENV=production`, `APP_ORIGIN` (the exact Netlify address, e.g. `https://your-site.netlify.app`, no trailing slash), `MONGODB_URI`, `SESSION_SECRET` (32+ characters), `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`, `MAIL_FROM` and `BREVO_API_KEY`. Render's free plan blocks SMTP ports, which is why email is sent over HTTPS through Brevo; the sender in `MAIL_FROM` must be verified in Brevo. After changing a variable, redeploy.
 
-1. Create a Git repository with this project folder as its root and push it to GitHub.
-2. In Netlify, import that repository as a site. Keep the base directory at the project root. `netlify.toml` sets the build command, published `public/` folder, function folder, and `/api/*` rewrite.
-3. Choose the Netlify site name so you know its URL, then add the app variables in the Netlify UI under **Project configuration → Environment variables**. Make sure they are available to Functions. Do not place secrets in `netlify.toml` or commit `.env`.
-4. Set `NODE_ENV=production` and set `APP_ORIGIN` to the exact site URL, such as `https://your-site-name.netlify.app`. Add `MONGODB_URI`, `SESSION_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `MAIL_FROM` there as well.
-5. Trigger the deploy. After changing a Netlify environment variable, trigger a new deploy so Functions receive the updated value.
+**Website on Netlify.** Import the same repository. `netlify.toml` publishes `public/` and forwards every `/api/*` call to the Render address in the `to =` line (change it if your Render URL differs). Because the browser only talks to the Netlify address, there are no CORS or third-party-cookie problems.
 
-The frontend and API use the same site origin, so the browser can keep calling `/api/...`. MongoDB Atlas must accept connections from your deployment environment. Netlify Functions have execution limits; this app's account and email requests are designed as short request/response operations.
+**Keep the free API awake.** Render's free plan sleeps when idle and the first request afterwards can take a minute. Create a free monitor (for example at uptimerobot.com) that opens `https://YOUR-RENDER-ADDRESS/api/health` every 5 minutes.
 
+## Receipts and credit alerts
+
+- When an administrator funds an account, the customer gets one "Credit alert" email containing the message, the account and new balance, a **View receipt (PDF)** button and the PDF receipt as an attachment. The email respects the customer's alert preference and never delays or blocks the funding itself.
+- Every item in a customer's activity list has a **Receipt** button that opens a PDF (`GET /api/receipts/:id`). Customers can only open their own receipts.
+- The link in the email opens the site, asks the customer to sign in if needed, and then opens the receipt.
 
 ## Customer communication & support
 

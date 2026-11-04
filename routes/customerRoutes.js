@@ -15,6 +15,7 @@ router.get('/scheduled-transfers', requireAuth, customerController.listScheduled
 router.get('/transfer-reviews', requireAuth, customerController.listTransferReviews);
 router.delete('/scheduled-transfers/:id', requireAuth, customerController.cancelScheduledTransfer);
 router.get('/statement', requireAuth, customerController.downloadStatement);
+router.get('/receipts/:id', requireAuth, customerController.downloadReceipt);
 router.get('/accounts', requireAuth, accountController.listAccounts);
 router.post('/accounts/savings', requireAuth, accountController.openSavings);
 router.post('/accounts/transfer', requireAuth, accountController.transferBetweenAccounts);
