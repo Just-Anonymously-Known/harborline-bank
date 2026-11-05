@@ -354,6 +354,7 @@ function renderLimit(){const d=state.data||{};$('#dailyLeft').textContent=fm(d.d
 const POSITIVE=['funding','transfer_in','goal_withdrawal','international_refund'];
 function entryParts(item){const positive=POSITIVE.includes(item.kind),name=item.counterparty_name;let who;
  if(item.kind==='funding')who='Deposit · '+(name||'Harborline');
+ else if(item.internal)who=(positive?'From ':'To ')+(name||'your account')+' · your own account';
  else if(item.kind==='transfer_in')who='From '+(name||'a Harborline customer');
  else if(item.kind==='transfer_out')who='To '+(name||'a Harborline customer');
  else if(item.kind==='international_out')who='To '+(name||'recipient')+' · International';

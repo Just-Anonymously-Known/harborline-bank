@@ -19,15 +19,17 @@ const { generateReceipt, queueEntryAlert } = require('../services/fundingReceipt
 
 
 const maskAccount = number => number ? `•••• ${String(number).slice(-4)}` : null;
-async function enrichEntries(entries) {
+async function enrichEntries(entries, ownerId) {
   const ids = [...new Set(entries.map(e => e.counterpartyAccountId).filter(Boolean).map(String))];
-  const accts = ids.length ? await Account.find({ _id: { $in: ids } }).select('accountNumber').lean() : [];
+  const accts = ids.length ? await Account.find({ _id: { $in: ids } }).select('accountNumber userId').lean() : [];
   const numById = new Map(accts.map(a => [String(a._id), a.accountNumber]));
+  const ownById = new Map(accts.map(a => [String(a._id), String(a.userId) === String(ownerId)]));
   return entries.map(entry => ({
     ...entry,
     counterparty_name: entry.counterpartyName || null,
     counterparty_account: maskAccount(numById.get(String(entry.counterpartyAccountId))),
     reason: entry.description,
+    internal: Boolean(entry.counterpartyAccountId) && ownById.get(String(entry.counterpartyAccountId)) === true,
     amount: money(entry.amountCents),
     balanceAfter: money(entry.balanceAfterCents)
   }));
@@ -124,7 +126,7 @@ async function currentUser(req, res) {
     transactionsHasMore: ledgerTotal + creditTotal > 100,
     notifications: notifications.map(item => ({ id: String(item._id), title: item.title, message: item.message, read: Boolean(item.readAt), createdAt: item.createdAt })),
     transactions: [
-      ...(await enrichEntries(entries)),
+      ...(await enrichEntries(entries, req.session.user.id)),
       ...creditPurchases.filter(item => item.cardId?.cardType === 'credit').map(item => ({
         _id: item._id, transferGroup: `card-${item._id}`, kind: 'card_purchase', category: item.category,
         description: item.description, amount: money(item.amountCents), balanceAfter: '', createdAt: item.createdAt,
@@ -147,7 +149,7 @@ async function listTransactions(req, res) {
     CardTransaction.countDocuments({ userId: req.session.user.id, cardId: { $in: creditCardIds }, kind: 'purchase' })
   ]);
   const rows = [
-    ...(await enrichEntries(entries)),
+    ...(await enrichEntries(entries, req.session.user.id)),
     ...purchases.filter(item => item.cardId?.cardType === 'credit').map(item => ({
       _id: item._id, transferGroup: `card-${item._id}`, kind: 'card_purchase', category: item.category,
       description: item.description, amount: money(item.amountCents), balanceAfter: '', createdAt: item.createdAt, counterparty_name: null
@@ -204,6 +206,7 @@ async function transfer(req, res) {
       if (!sender || !recipient || String(recipient._id) === String(sender._id)) throw Object.assign(new Error('Recipient account was not found.'), { status: 400 });
       const recipientUser = await User.findOne({ _id: recipient.userId, verified: true }).session(dbSession);
       if (!recipientUser) throw Object.assign(new Error('Recipient account was not found.'), { status: 400 });
+      if (String(recipient.userId) === String(req.session.user.id)) throw Object.assign(new Error('This is one of your own accounts. Use Accounts, then Move money between my accounts.'), { status: 400 });
       if (sender.status !== 'active' || recipient.status !== 'active') throw Object.assign(new Error('One of these accounts is frozen.'), { status: 400 });
       const locked = await Account.find({ _id: { $in: [sender._id, recipient._id] } }).sort({ _id: 1 }).session(dbSession);
       const byId = new Map(locked.map(account => [String(account._id), account]));
