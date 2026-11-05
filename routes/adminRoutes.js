@@ -1,5 +1,6 @@
 const express = require('express');
 const adminController = require('../controllers/adminController');
+const internationalController = require('../controllers/internationalController');
 const maintenanceController = require('../controllers/maintenanceController');
 const { requireAuth, requireAdmin, requirePermission, requireAuditReason } = require('../middleware/sessionAccess');
 
@@ -13,6 +14,8 @@ router.get('/admins', requirePermission('owner'), async (req, res) => {
 });
 router.post('/admins', requirePermission('owner'), requireAuditReason, adminController.createAdmin);
 router.patch('/admins/:id/role', requirePermission('owner'), requireAuditReason, adminController.setAdminRole);
+router.get('/international', requirePermission('owner', 'operations'), internationalController.listAdmin);
+router.post('/international/:id/decision', requirePermission('owner', 'operations'), requireAuditReason, internationalController.decide);
 router.get('/accounts', adminController.listAccounts);
 router.get('/transfer-reviews', adminController.listTransferReviews);
 router.post('/transfer-reviews/:id/decision', requirePermission('owner', 'operations'), requireAuditReason, adminController.resolveTransferReview);

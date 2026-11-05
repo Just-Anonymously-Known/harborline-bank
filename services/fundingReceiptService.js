@@ -26,6 +26,8 @@ const KINDS = {
   goal_contribution: { credit: false, header: 'SAVINGS RECEIPT', title: 'Savings goal deposit', lead: 'This receipt confirms money moved from checking into a savings goal.', amountLabel: 'AMOUNT SAVED', partyLabel: 'Destination', party: () => 'Savings goal' },
   goal_withdrawal: { credit: true, header: 'SAVINGS RECEIPT', title: 'Savings goal withdrawal', lead: 'This receipt confirms money moved from a savings goal back to checking.', amountLabel: 'AMOUNT WITHDRAWN', partyLabel: 'Source', party: () => 'Savings goal' },
   card_purchase: { credit: false, header: 'CARD RECEIPT', title: 'Card purchase', lead: 'This receipt confirms a card purchase on your Harborline account.', amountLabel: 'AMOUNT CHARGED', partyLabel: 'Merchant', party: entry => entry.description || 'Card purchase' },
+  international_out: { credit: false, header: 'INTERNATIONAL TRANSFER RECEIPT', title: 'International transfer submitted', lead: 'This receipt confirms an international transfer from your Harborline account. The amount shown includes the transfer fee.', amountLabel: 'TOTAL DEBITED', partyLabel: 'Sent to', party: entry => entry.counterparty || 'Recipient' },
+  international_refund: { credit: true, header: 'REFUND RECEIPT', title: 'International transfer refunded', lead: 'This receipt confirms that an international transfer was returned to your Harborline account.', amountLabel: 'AMOUNT REFUNDED', partyLabel: 'Returned from', party: entry => entry.counterparty || 'Recipient' },
   card_payment: { credit: false, header: 'PAYMENT RECEIPT', title: 'Credit card payment', lead: 'This receipt confirms a payment made toward your Harborline credit card.', amountLabel: 'AMOUNT PAID', partyLabel: 'Paid to', party: () => 'Harborline credit card' }
 };
 
@@ -34,6 +36,8 @@ const ALERTS = {
   funding: { title: 'Credit alert: funds added', subject: c => `Credit alert: ${c.amount} added to your Harborline account`, message: c => `${c.amount} was credited to your ${c.acct} account (${c.mask}).` },
   transfer_in: { title: 'Credit alert: money received', subject: c => `Credit alert: ${c.amount} received from ${c.cp}`, message: c => `${c.amount} was received from ${c.cp} in your ${c.acct} account (${c.mask}).` },
   transfer_out: { title: 'Debit alert: money sent', subject: c => `Debit alert: ${c.amount} sent to ${c.cp}`, message: c => `${c.amount} was sent to ${c.cp} from your ${c.acct} account (${c.mask}).` },
+  international_out: { title: 'Debit alert: international transfer', subject: c => `Debit alert: ${c.amount} international transfer to ${c.cp}`, message: c => `${c.amount} (including the fee) was debited from your ${c.acct} account (${c.mask}) for an international transfer to ${c.cp}. It is now being processed.` },
+  international_refund: { title: 'Credit alert: transfer refunded', subject: c => `Credit alert: ${c.amount} refunded to your account`, message: c => `${c.amount} was returned to your ${c.acct} account (${c.mask}) because your international transfer to ${c.cp} did not go through.` },
   card_purchase: { title: 'Debit alert: card purchase', subject: c => `Debit alert: ${c.amount} spent at ${c.desc}`, message: c => `${c.amount} was spent at ${c.desc} from your ${c.acct} account (${c.mask}).` },
   card_payment: { title: 'Debit alert: credit card payment', subject: c => `Debit alert: ${c.amount} paid to your credit card`, message: c => `${c.amount} was paid from your ${c.acct} account (${c.mask}) toward your credit card.` },
   goal_contribution: { title: 'Debit alert: moved to savings goal', subject: c => `Debit alert: ${c.amount} moved to a savings goal`, message: c => `${c.amount} was moved from your ${c.acct} account (${c.mask}) into a savings goal.` },
@@ -99,6 +103,7 @@ async function generateReceipt({ customer, account, entry, amount, balance, prev
     ['Description', description]
   ];
   if (entry.category && entry.kind !== 'funding') details.push(['Category', safeText(entry.category)]);
+  for (const row of entry.extraRows || []) details.push([safeText(row[0]), safeText(row[1])]);
 
   const accountRows = [
     ['Account holder', safeText(customer.name)],
@@ -215,7 +220,7 @@ function drawDetail(doc, label, value, x, y, width) {
  *   amountCents, balanceAfterCents, description, counterparty, category
  *   transactionId (ledger entry id, used for the receipt link), reference (transfer group), transactionDate
  */
-async function sendTransactionReceipt({ userId, account, kind, amountCents, balanceAfterCents, description, counterparty, category, transactionId, reference, transactionDate }) {
+async function sendTransactionReceipt({ userId, account, kind, amountCents, balanceAfterCents, description, counterparty, category, transactionId, reference, transactionDate, extraRows = [] }) {
   const customer = await User.findOne({ _id: userId, verified: true, transactionAlerts: true }).select('name email').lean();
   if (!customer) return { skipped: true };
 
@@ -238,7 +243,7 @@ async function sendTransactionReceipt({ userId, account, kind, amountCents, bala
     const pdf = await generateReceipt({
       customer, account, amount: amountCents, balance: hasBalance ? balanceAfterCents : undefined,
       previousBalance: hasBalance ? balanceAfterCents + (config.credit ? -amountCents : amountCents) : undefined,
-      entry: { kind, reference: reference || transactionId, createdAt, description, category, counterparty }
+      entry: { kind, reference: reference || transactionId, createdAt, description, category, counterparty, extraRows }
     });
     attachments = [{ filename: `harborline-receipt-${shortReference(reference || transactionId)}.pdf`, content: pdf, contentType: 'application/pdf' }];
   } catch (error) {
@@ -267,6 +272,7 @@ async function sendTransactionReceipt({ userId, account, kind, amountCents, bala
       ['Account', `${accountLabel} (${accountMasked})`],
       Number.isSafeInteger(balanceAfterCents) ? ['New balance', formatMoney(balanceAfterCents, currency)] : null,
       ['Date (UTC)', formatDate(createdAt)],
+      ...extraRows,
       ['Reference', reference || transactionId]
     ],
     ctaLabel: link ? 'View receipt (PDF)' : undefined,
@@ -293,7 +299,8 @@ async function sendEntryAlert(entryId) {
   return sendTransactionReceipt({
     userId: account.userId, account, kind: entry.kind, amountCents: entry.amountCents, balanceAfterCents: entry.balanceAfterCents,
     description: entry.description, counterparty: entry.counterpartyName, category: entry.category,
-    transactionId: String(entry._id), reference: entry.transferGroup, transactionDate: entry.createdAt
+    transactionId: String(entry._id), reference: entry.transferGroup, transactionDate: entry.createdAt,
+    extraRows: await require('./internationalService').extraRowsForEntry(entry)
   });
 }
 

@@ -82,7 +82,8 @@ function createApp() {
   app.use('/api', (err, req, res, next) => {
     console.error(err);
     if (res.headersSent) return next(err);
-    res.status(err.status || 500).json({ error: err.code === 'EMAIL_DELIVERY' ? err.message : 'Something went wrong. Please try again.' });
+    const safe = err.code === 'EMAIL_DELIVERY' || (err.status && err.status < 500 && err.expose !== false);
+    res.status(err.status || 500).json({ error: safe ? err.message : 'Something went wrong. Please try again.' });
   });
 
   app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'], maxAge: isProduction ? '1h' : 0 }));

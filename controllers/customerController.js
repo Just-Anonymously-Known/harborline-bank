@@ -9,7 +9,7 @@ const CardTransaction = require('../models/CardTransaction');
 const Card = require('../models/Card');
 const { notify } = require('../services/notificationService');
 const { sendTransactionAlert } = require('../services/emailAlertService');
-const { cents, money, fmtMoney } = require('../utils/finance');
+const { cents, money, fmtMoney, DEFAULT_DAILY_LIMIT_CENTS } = require('../utils/finance');
 const { safeUser } = require('../utils/identity');
 const { statementHtml } = require('../services/statementService');
 const ScheduledTransfer = require('../models/ScheduledTransfer');
@@ -65,11 +65,11 @@ async function downloadReceipt(req, res) {
   if (entry) {
     const account = await Account.findOne({ _id: entry.accountId, userId: req.session.user.id }).lean();
     if (!account) return res.status(404).json({ error: 'Receipt not found.' });
-    const credit = ['funding', 'transfer_in', 'goal_withdrawal'].includes(entry.kind);
+    const credit = ['funding', 'transfer_in', 'goal_withdrawal', 'international_refund'].includes(entry.kind);
     pdfInput = {
       customer: owner, account, amount: entry.amountCents, balance: entry.balanceAfterCents,
       previousBalance: entry.balanceAfterCents + (credit ? -entry.amountCents : entry.amountCents),
-      entry: { kind: entry.kind, reference: entry.transferGroup, createdAt: entry.createdAt, description: entry.description, category: entry.category, counterparty: entry.counterpartyName }
+      entry: { kind: entry.kind, reference: entry.transferGroup, createdAt: entry.createdAt, description: entry.description, category: entry.category, counterparty: entry.counterpartyName, extraRows: await require('../services/internationalService').extraRowsForEntry(entry) }
     };
     if (pdfInput.previousBalance < 0) pdfInput.previousBalance = undefined;
   } else {
@@ -88,6 +88,15 @@ async function downloadReceipt(req, res) {
     'Content-Disposition': `inline; filename="harborline-receipt-${id.slice(-8)}.pdf"`,
     'Cache-Control': 'private, no-store'
   }).send(pdf);
+}
+
+async function sentToday(accountIds) {
+  const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
+  const totals = await LedgerEntry.aggregate([
+    { $match: { accountId: { $in: accountIds }, kind: 'transfer_out', createdAt: { $gte: startOfDay } } },
+    { $group: { _id: null, total: { $sum: '$amountCents' } } }
+  ]);
+  return totals[0]?.total || 0;
 }
 
 async function currentUser(req, res) {
@@ -110,7 +119,8 @@ async function currentUser(req, res) {
     user: safeUser(user),
     account: { id: String(account._id), accountNumber: account.accountNumber, balance: money(account.balanceCents), currency: account.currency, status: account.status },
     accounts: accounts.map(item => ({ id: String(item._id), accountNumber: item.accountNumber, accountType: item.accountType, nickname: item.nickname || '', status: item.status, balance: money(item.balanceCents), currency: item.currency })),
-    dailyTransferLimit: money(user.dailyTransferLimitCents || 100000),
+    dailyTransferLimit: money(user.dailyTransferLimitCents || DEFAULT_DAILY_LIMIT_CENTS),
+    dailyRemaining: money(Math.max(0, (user.dailyTransferLimitCents || DEFAULT_DAILY_LIMIT_CENTS) - await sentToday(accounts.map(item => item._id)))),
     transactionsHasMore: ledgerTotal + creditTotal > 100,
     notifications: notifications.map(item => ({ id: String(item._id), title: item.title, message: item.message, read: Boolean(item.readAt), createdAt: item.createdAt })),
     transactions: [
@@ -202,7 +212,7 @@ async function transfer(req, res) {
       if (from.balanceCents < amount) throw Object.assign(new Error('Insufficient funds for this transfer.'), { status: 400 });
       recipientName = recipientUser.name;
       const user = await User.findById(req.session.user.id).session(dbSession);
-      const dailyLimit = user.dailyTransferLimitCents || 100000;
+      const dailyLimit = user.dailyTransferLimitCents || DEFAULT_DAILY_LIMIT_CENTS;
       const accountIds = await Account.find({ userId: user._id }).distinct('_id').session(dbSession);
       const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
       const totals = await LedgerEntry.aggregate([

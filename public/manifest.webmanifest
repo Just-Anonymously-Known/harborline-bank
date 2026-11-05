@@ -1,0 +1,14 @@
+{
+  "name": "Harborline Online Banking",
+  "short_name": "Harborline",
+  "description": "Accounts, transfers, savings goals and card controls.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#082b52",
+  "theme_color": "#082b52",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

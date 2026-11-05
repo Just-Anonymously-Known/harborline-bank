@@ -21,7 +21,14 @@ async function connectDatabase() {
   const indexes = await Account.collection.indexes().catch(() => []);
   const legacyUniqueUserIndex = indexes.find(index => index.unique && index.key.userId === 1 && Object.keys(index.key).length === 1);
   if (legacyUniqueUserIndex) await Account.collection.dropIndex(legacyUniqueUserIndex.name);
-  await User.updateMany({ transactionAlerts: { $exists: false } }, { $set: { transactionAlerts: true, dailyTransferLimitCents: 100000 } });
+  await User.updateMany({ transactionAlerts: { $exists: false } }, { $set: { transactionAlerts: true } });
+  // One-time: customers still on the old $1,000 default limit move to the new default (admin-set limits are left alone later).
+  try {
+    await mongoose.connection.db.collection('meta').insertOne({ _id: 'daily-limit-default-v5', at: new Date() });
+    const { DEFAULT_DAILY_LIMIT_CENTS } = require('../utils/finance');
+    const moved = await User.updateMany({ role: 'customer', dailyTransferLimitCents: 100000 }, { $set: { dailyTransferLimitCents: DEFAULT_DAILY_LIMIT_CENTS } });
+    console.log('Daily limit default updated for', moved.modifiedCount, 'customers.');
+  } catch (error) { if (error.code !== 11000) console.error('Limit migration skipped:', error.message); }
   await Account.updateMany({ accountType: { $exists: false } }, { $set: { accountType: 'checking', nickname: 'Everyday Checking', status: 'active' } });
   await Promise.all([User.init(), Account.init(), Card.init()]);
   console.log('Connected to MongoDB.');

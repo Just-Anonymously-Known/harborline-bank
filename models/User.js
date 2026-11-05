@@ -26,7 +26,7 @@ const userSchema = new mongoose.Schema({
   verified: { type: Boolean, default: false },
   emailOptIn: { type: Boolean, default: false },
   transactionAlerts: { type: Boolean, default: true },
-  dailyTransferLimitCents: { type: Number, default: 100000, min: 100 },
+  dailyTransferLimitCents: { type: Number, default: () => require('../utils/finance').DEFAULT_DAILY_LIMIT_CENTS, min: 100 },
   transferReviewThresholdCents: { type: Number, default: 0, min: 0 },
   otpHash: { type: String, select: false },
   otpExpires: { type: Date, select: false },

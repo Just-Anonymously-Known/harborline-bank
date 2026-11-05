@@ -138,3 +138,18 @@ The chatbot answers common navigation and banking questions. It does not access 
 - **Languages**: a language selector in the header plus an offer to translate based on the browser/device language. It uses Google Website Translator, so the page needs internet access to translate.
 - New API routes: `GET /api/accounts/lookup/:number`, `GET /api/me/pulse`, `POST /api/support/tickets/:id/reply`.
 - `netlify.toml` Content-Security-Policy now allows the translator. Redeploy it with the site.
+
+### Also in this release
+
+- Default daily transfer limit is now **$50,000** (set `DEFAULT_DAILY_TRANSFER_LIMIT` on Render, in whole dollars, to change it). Customers still on the old $1,000 default are moved to the new default once; limits you set per customer in the admin area are never changed after that.
+- The Send money page shows how much you can still send today, blocks over-limit or insufficient-funds amounts before sending, and shows any server error inside the confirm window.
+- Saved recipients (tap to fill and verify), CSV export of transactions, tap-to-copy account numbers, Escape closes pop-ups.
+- Installable on a phone (Add to Home Screen) via `manifest.webmanifest`, plus a friendly 404 page and `robots.txt`.
+- Dark mode fixes for cards, buttons, pop-ups and chat, checked automatically for readable contrast on every page.
+
+### International transfers
+
+- Customers open **International** in the sidebar, enter the recipient (name, country, bank, SWIFT/BIC, IBAN or account number), pick the amount and any of 60+ currencies, and see the live rate, the fee and exactly what the recipient gets before confirming.
+- The amount plus fee is held immediately and shows as **Processing**. Admins review it under **International transfers** and **Approve** (marked completed) or **Reject** (full refund). Customers can also cancel a pending transfer for an instant refund. Debit, refund and completion alerts are emailed with a PDF receipt.
+- Checks: SWIFT format, IBAN checksum, minimum $10 / maximum $100,000 per transfer, daily limit (`INTL_DAILY_LIMIT`, default $25,000) and blocked countries (`INTL_BLOCKED_COUNTRIES`, default `KP,IR,SY,CU`).
+- Fee: 1% (min $2.50, max $45). Rates come from open.er-api.com; if it is unreachable the app falls back to built-in reference rates and labels them indicative.

@@ -23,7 +23,7 @@ const { mapLimit } = require('../utils/async');
 const { renderEmail } = require('../services/emailTemplates');
 const { sendFundingReceipt, queueEntryAlert } = require('../services/fundingReceiptService');
 
-const DEFAULT_DAILY_TRANSFER_LIMIT_CENTS = 100000;
+const { DEFAULT_DAILY_LIMIT_CENTS: DEFAULT_DAILY_TRANSFER_LIMIT_CENTS } = require('../utils/finance');
 
 function safeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

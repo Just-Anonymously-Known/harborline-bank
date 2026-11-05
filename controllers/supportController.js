@@ -16,11 +16,11 @@ async function createTicket(req,res) {
   const ticketId=String(ticket._id);
   const supportEmail=process.env.SUPPORT_EMAIL || process.env.MAIL_FROM;
   const text=`New Harborline support request\nTicket: ${ticketId}\nFrom: ${email}\nCategory: ${category}\nSubject: ${subject}\n\n${message}`;
-  try {
+  (async()=>{try {
     if(supportEmail) await sendMail({to:supportEmail,subject:`[Harborline Support ${ticketId.slice(-8)}] ${subject}`,text,html:`<h2>New support request</h2><p><b>Ticket:</b> ${escapeHtml(ticketId)}</p><p><b>From:</b> ${escapeHtml(email)}</p><p><b>Category:</b> ${escapeHtml(category)}</p><p><b>Subject:</b> ${escapeHtml(subject)}</p><p>${escapeHtml(message).replace(/\n/g,'<br>')}</p>`});
     await sendMail({to:email,subject:`We received your Harborline support request (${ticketId.slice(-8)})`,text:`Hello${req.body.name?' '+clean(req.body.name,80):''},\n\nWe received your message and created ticket ${ticketId}. Our support team will follow up by email.\n\nHarborline Support`,html:`<p>We received your message and created support ticket <b>${escapeHtml(ticketId)}</b>.</p><p>Our support team will follow up by email.</p><p>Harborline Support</p>`});
-  } catch(e) { console.error('Support email delivery issue:',e.message); }
-  res.status(201).json({ticket:{id:ticketId,status:ticket.status,subject:ticket.subject,createdAt:ticket.createdAt},message:'Your support request was recorded. Email delivery depends on SMTP configuration.'});
+  } catch(e) { console.error('Support email delivery issue:',e.message); }})();
+  res.status(201).json({ticket:{id:ticketId,status:ticket.status,subject:ticket.subject,createdAt:ticket.createdAt},message:'Your message was sent. We will reply here and by email.'});
 }
 async function listMine(req,res){
  const tickets=await SupportTicket.find({userId:req.session.user.id}).sort({createdAt:-1}).limit(50).select('subject category message status createdAt updatedAt replies').lean();

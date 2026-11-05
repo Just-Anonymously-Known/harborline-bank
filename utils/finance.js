@@ -15,4 +15,7 @@ function fmtMoney(amountCents) {
   return (Number(amountCents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-module.exports = { cents, money, fmtMoney };
+// Default daily transfer limit per customer. Override with DEFAULT_DAILY_TRANSFER_LIMIT (whole dollars).
+const DEFAULT_DAILY_LIMIT_CENTS = Math.max(100, Math.round((Number(process.env.DEFAULT_DAILY_TRANSFER_LIMIT) || 50000) * 100));
+
+module.exports = { cents, money, fmtMoney, DEFAULT_DAILY_LIMIT_CENTS };
