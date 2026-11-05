@@ -5,9 +5,12 @@ const goalController = require('../controllers/goalController');
 const cardController = require('../controllers/cardController');
 const notificationController = require('../controllers/notificationController');
 const { requireAuth } = require('../middleware/sessionAccess');
+const { lookupLimiter } = require('../middleware/rateLimiters');
 
 const router = express.Router();
 router.get('/me', customerController.currentUser);
+router.get('/me/pulse', requireAuth, customerController.pulse);
+router.get('/accounts/lookup/:number', requireAuth, lookupLimiter, accountController.lookupAccount);
 router.get('/transactions', requireAuth, customerController.listTransactions);
 router.post('/preferences', requireAuth, customerController.updatePreferences);
 router.post('/transfer', requireAuth, customerController.transfer);

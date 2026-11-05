@@ -15,7 +15,23 @@ const { statementHtml } = require('../services/statementService');
 const ScheduledTransfer = require('../models/ScheduledTransfer');
 const { processDueTransfers } = require('../services/scheduledTransferService');
 const TransferReview = require('../models/TransferReview');
-const { generateReceipt } = require('../services/fundingReceiptService');
+const { generateReceipt, queueEntryAlert } = require('../services/fundingReceiptService');
+
+
+const maskAccount = number => number ? `•••• ${String(number).slice(-4)}` : null;
+async function enrichEntries(entries) {
+  const ids = [...new Set(entries.map(e => e.counterpartyAccountId).filter(Boolean).map(String))];
+  const accts = ids.length ? await Account.find({ _id: { $in: ids } }).select('accountNumber').lean() : [];
+  const numById = new Map(accts.map(a => [String(a._id), a.accountNumber]));
+  return entries.map(entry => ({
+    ...entry,
+    counterparty_name: entry.counterpartyName || null,
+    counterparty_account: maskAccount(numById.get(String(entry.counterpartyAccountId))),
+    reason: entry.description,
+    amount: money(entry.amountCents),
+    balanceAfter: money(entry.balanceAfterCents)
+  }));
+}
 
 function dateRange(query) {
   const start = query.start ? new Date(`${query.start}T00:00:00.000Z`) : new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
@@ -98,7 +114,7 @@ async function currentUser(req, res) {
     transactionsHasMore: ledgerTotal + creditTotal > 100,
     notifications: notifications.map(item => ({ id: String(item._id), title: item.title, message: item.message, read: Boolean(item.readAt), createdAt: item.createdAt })),
     transactions: [
-      ...entries.map(entry => ({ ...entry, counterparty_name: entry.counterpartyName || null, amount: money(entry.amountCents), balanceAfter: money(entry.balanceAfterCents) })),
+      ...(await enrichEntries(entries)),
       ...creditPurchases.filter(item => item.cardId?.cardType === 'credit').map(item => ({
         _id: item._id, transferGroup: `card-${item._id}`, kind: 'card_purchase', category: item.category,
         description: item.description, amount: money(item.amountCents), balanceAfter: '', createdAt: item.createdAt,
@@ -121,13 +137,31 @@ async function listTransactions(req, res) {
     CardTransaction.countDocuments({ userId: req.session.user.id, cardId: { $in: creditCardIds }, kind: 'purchase' })
   ]);
   const rows = [
-    ...entries.map(item => ({ ...item, counterparty_name: item.counterpartyName || null, amount: money(item.amountCents), balanceAfter: money(item.balanceAfterCents) })),
+    ...(await enrichEntries(entries)),
     ...purchases.filter(item => item.cardId?.cardType === 'credit').map(item => ({
       _id: item._id, transferGroup: `card-${item._id}`, kind: 'card_purchase', category: item.category,
       description: item.description, amount: money(item.amountCents), balanceAfter: '', createdAt: item.createdAt, counterparty_name: null
     }))
   ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   res.json({ transactions: rows.slice(offset, offset + limit), offset, total: ledgerTotal + purchaseTotal, hasMore: ledgerTotal + purchaseTotal > offset + limit });
+}
+
+
+async function pulse(req, res) {
+  if (!req.session.user) return res.json({ user: null });
+  const accounts = await Account.find({ userId: req.session.user.id }).select('balanceCents').lean();
+  const ids = accounts.map(a => a._id);
+  const [latest, unread, recent] = await Promise.all([
+    LedgerEntry.findOne({ accountId: { $in: ids } }).sort({ createdAt: -1 }).select('_id createdAt').lean(),
+    Notification.countDocuments({ userId: req.session.user.id, readAt: null }),
+    Notification.findOne({ userId: req.session.user.id }).sort({ createdAt: -1 }).select('title message').lean()
+  ]);
+  res.json({
+    total: money(accounts.reduce((sum, a) => sum + a.balanceCents, 0)),
+    latestEntry: latest ? String(latest._id) : null,
+    unread,
+    latestNotice: recent ? { title: recent.title, message: recent.message } : null
+  });
 }
 
 async function updatePreferences(req, res) {
@@ -150,7 +184,7 @@ async function transfer(req, res) {
     return res.status(400).json({ error: 'Enter a valid 10-digit recipient account and amount up to $1,000,000.' });
   }
   const dbSession = await mongoose.startSession();
-  let newBalance, recipientName, recipientId, reviewPending = false;
+  let newBalance, recipientName, recipientId, outEntryId, inEntryId, fromLabel, fromNumber, toNumber, createdAt, reviewPending = false;
   try {
     await dbSession.withTransaction(async () => {
       const sender = await Account.findOne(req.body.fromAccountId
@@ -166,6 +200,7 @@ async function transfer(req, res) {
       const from = byId.get(String(sender._id)), to = byId.get(String(recipient._id));
       if (!from || !to) throw Object.assign(new Error('Account is unavailable.'), { status: 400 });
       if (from.balanceCents < amount) throw Object.assign(new Error('Insufficient funds for this transfer.'), { status: 400 });
+      recipientName = recipientUser.name;
       const user = await User.findById(req.session.user.id).session(dbSession);
       const dailyLimit = user.dailyTransferLimitCents || 100000;
       const accountIds = await Account.find({ userId: user._id }).distinct('_id').session(dbSession);
@@ -188,15 +223,17 @@ async function transfer(req, res) {
       from.balanceCents -= amount;
       to.balanceCents += amount;
       newBalance = from.balanceCents;
+      fromLabel = from.nickname || (from.accountType === 'savings' ? 'Savings' : 'Checking'); fromNumber = from.accountNumber; toNumber = to.accountNumber;
       recipientName = recipientUser.name;
       recipientId = recipientUser._id;
       await from.save({ session: dbSession });
       await to.save({ session: dbSession });
       const transferGroup = crypto.randomUUID();
-      await LedgerEntry.create([
+      const created = await LedgerEntry.create([
         { transferGroup, accountId: from._id, counterpartyAccountId: to._id, counterpartyName: recipientUser.name, kind: 'transfer_out', amountCents: amount, balanceAfterCents: from.balanceCents, description: memo, category },
         { transferGroup, accountId: to._id, counterpartyAccountId: from._id, counterpartyName: senderUser?.name || 'Harborline customer', kind: 'transfer_in', amountCents: amount, balanceAfterCents: to.balanceCents, description: memo, category }
       ], { session: dbSession, ordered: true });
+      outEntryId = created[0]._id; inEntryId = created[1]._id; createdAt = created[0].createdAt;
       await notify(user._id, 'Transfer sent', `$${money(amount)} sent to ${recipientUser.name}.`, dbSession);
       await notify(recipientUser._id, 'Transfer received', `$${money(amount)} received from ${senderUser?.name || 'a Harborline customer'}.`, dbSession);
     });
@@ -204,12 +241,19 @@ async function transfer(req, res) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     throw err;
   } finally { await dbSession.endSession(); }
-  if (reviewPending) return res.status(202).json({ message: 'Transfer submitted for administrator review. The balance has not changed yet.', status: 'pending_review' });
-  await Promise.all([
-    sendTransactionAlert(req.session.user.id, 'Transfer sent', `$${money(amount)} sent to ${recipientName}.`),
-    sendTransactionAlert(recipientId, 'Transfer received', `$${money(amount)} received from a Harborline customer.`)
-  ]);
-  res.json({ message: 'Transfer completed.', balance: money(newBalance), recipient: recipientName });
+  if (reviewPending) return res.status(202).json({ message: 'Transfer submitted for administrator review. The balance has not changed yet.', status: 'pending_review', transfer: { status: 'pending_review', amount: money(amount), recipient: recipientName, recipientAccount: maskAccount(recipientNumber), reason: memo, category } });
+  // Debit alert for the sender and credit alert for the recipient, each with a PDF receipt (sent in the background).
+  queueEntryAlert(outEntryId);
+  queueEntryAlert(inEntryId);
+  res.json({
+    message: 'Transfer completed.', balance: money(newBalance), recipient: recipientName,
+    transfer: {
+      status: 'completed', id: String(outEntryId), reference: String(outEntryId).slice(-8).toUpperCase(),
+      amount: money(amount), recipient: recipientName, recipientAccount: maskAccount(toNumber),
+      fromAccount: `${fromLabel} ${maskAccount(fromNumber)}`, reason: memo, category,
+      balanceAfter: money(newBalance), createdAt
+    }
+  });
 }
 
 async function scheduleTransfer(req, res) {
@@ -271,4 +315,4 @@ async function markNotificationRead(req, res) {
   res.json({ ok: true });
 }
 
-module.exports = { currentUser, listTransactions, updatePreferences, transfer, listSessions, revokeSession, markNotificationRead, downloadStatement, downloadReceipt, listScheduledTransfers, cancelScheduledTransfer, listTransferReviews };
+module.exports = { pulse, currentUser, listTransactions, updatePreferences, transfer, listSessions, revokeSession, markNotificationRead, downloadStatement, downloadReceipt, listScheduledTransfers, cancelScheduledTransfer, listTransferReviews };

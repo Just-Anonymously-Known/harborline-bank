@@ -17,6 +17,9 @@ function createApp() {
   const app = express();
   const isProduction = process.env.NODE_ENV === 'production';
   app.set('trust proxy', 1);
+  app.set('etag', false);
+  // Stay signed in until the customer signs out (renewed on every visit).
+  const SESSION_MS = 1000 * 60 * 60 * 24 * 30;
 
   // Allow the deployed Netlify frontend(s) to call this API with session cookies.
   app.use((req, res, next) => {
@@ -52,15 +55,20 @@ function createApp() {
       mongoUrl: process.env.MONGODB_URI,
       collectionName: 'web_sessions',
       mongoOptions: { maxPoolSize: 5 },
-      ttl: 60 * 60 * 8,
+      ttl: SESSION_MS / 1000,
+      touchAfter: 15 * 60,
       autoRemove: 'native'
     }),
     name: 'harborline.sid',
     secret: process.env.SESSION_SECRET,
     resave: false,
+    rolling: true,
     saveUninitialized: false,
-    cookie: { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'none' : 'lax', maxAge: 1000 * 60 * 60 * 8 }
+    cookie: { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'none' : 'lax', maxAge: SESSION_MS }
   }));
+
+  // Account data must never be cached by the browser or a CDN.
+  app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); res.vary('Cookie'); next(); });
 
   app.get('/api/csrf', attachCsrfRoutes);
   app.use(requireSameOriginAndCsrf);

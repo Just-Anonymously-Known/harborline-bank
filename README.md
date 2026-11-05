@@ -100,6 +100,8 @@ The seeded admin is created or refreshed from `ADMIN_EMAIL` and `ADMIN_PASSWORD`
 ## Receipts and credit alerts
 
 - When an administrator funds an account, the customer gets one "Credit alert" email containing the message, the account and new balance, a **View receipt (PDF)** button and the PDF receipt as an attachment. The email respects the customer's alert preference and never delays or blocks the funding itself.
+- Transfers, scheduled transfers, approved transfer reviews, debit-card purchases and credit-card payments send the same style of alert: a **Debit alert** to the sender (or payer) and a **Credit alert** to the recipient, each with a PDF receipt attached.
+- Customers stay signed in (renewed on every visit) until they sign out; a **Refresh** button in the top bar and a 30-second automatic refresh keep balances current.
 - Every item in a customer's activity list has a **Receipt** button that opens a PDF (`GET /api/receipts/:id`). Customers can only open their own receipts.
 - The link in the email opens the site, asks the customer to sign in if needed, and then opens the receipt.
 
@@ -125,3 +127,14 @@ SUPPORT_EMAIL=support@example.com
 `SUPPORT_EMAIL` is the inbox that receives submitted customer support requests. SMTP must be configured for real delivery; in development without SMTP, the mail service logs local-only messages. Do not commit credentials to source control.
 
 The chatbot answers common navigation and banking questions. It does not access balances or perform transactions; customers must use authenticated banking pages for account-specific actions. Never submit passwords, OTPs, PINs, or full card numbers in support forms or chat.
+
+## What's new in v5
+
+- **Sidebar navigation** for customers and admins (a slide-out menu on phones). Every function has its own page: Overview, Send money, Transactions, Accounts, Cards, Savings goals, Loan calculator, Statements, Help & support, Security. Refreshing keeps you on the same page.
+- **Send money** is its own page. Type a 10-digit account number and the account holder's name appears so you can confirm it. A review step shows name, amount and reason, then a dedicated **Transfer successful** page with a receipt button.
+- **Live balances**: the sender's balance drops immediately and the recipient's balance and Transactions list update by themselves within seconds (no refresh needed), with a pop-up for incoming credits.
+- **Names and reasons** on every transaction (sender/recipient, reason, category, masked account) with a details view.
+- **Help & support**: chat assistant (English, Spanish, French, Portuguese, German and more keywords), a message/complaint form, ticket history with replies, and an admin **Support inbox**. Customers get a notification when support replies.
+- **Languages**: a language selector in the header plus an offer to translate based on the browser/device language. It uses Google Website Translator, so the page needs internet access to translate.
+- New API routes: `GET /api/accounts/lookup/:number`, `GET /api/me/pulse`, `POST /api/support/tickets/:id/reply`.
+- `netlify.toml` Content-Security-Policy now allows the translator. Redeploy it with the site.

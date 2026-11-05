@@ -7,6 +7,7 @@ const LedgerEntry = require('../models/LedgerEntry');
 const { cents, money } = require('../utils/finance');
 const { notify } = require('../services/notificationService');
 const { sendTransactionAlert } = require('../services/emailAlertService');
+const { queueEntryAlert } = require('../services/fundingReceiptService');
 
 async function listCards(req, res) {
   let cards = await Card.find({ userId: req.session.user.id }).sort({ cardType: 1 }).lean();
@@ -38,7 +39,7 @@ async function debitPurchase(req, res) {
   const category = categories.includes(req.body.category) ? req.body.category : 'Other';
   if (!amount) return res.status(400).json({ error: 'Enter a valid purchase amount.' });
   const dbSession = await mongoose.startSession();
-  let remaining;
+  let remaining, entryId;
   try {
     await dbSession.withTransaction(async () => {
       const card = await Card.findOne({ userId: req.session.user.id, cardType: 'debit' }).session(dbSession);
@@ -50,16 +51,17 @@ async function debitPurchase(req, res) {
       account.balanceCents -= amount;
       remaining = account.balanceCents;
       await account.save({ session: dbSession });
-      await LedgerEntry.create([{
+      const [ledger] = await LedgerEntry.create([{
         transferGroup: `purchase-${Date.now()}`, accountId: account._id, kind: 'card_purchase',
         amountCents: amount, balanceAfterCents: remaining, description, category
       }], { session: dbSession });
+      entryId = ledger._id;
       await CardTransaction.create([{ userId: req.session.user.id, cardId: card._id, kind: 'purchase', amountCents: amount, description, category }], { session: dbSession });
       await notify(req.session.user.id, 'Debit card purchase', `$${money(amount)} at ${description}.`, dbSession);
     });
   } catch (err) { if (err.status) return res.status(err.status).json({ error: err.message }); throw err; }
   finally { await dbSession.endSession(); }
-  await sendTransactionAlert(req.session.user.id, 'Debit card purchase', `$${money(amount)} at ${description}.`);
+  queueEntryAlert(entryId);
   res.json({ message: 'Card purchase recorded.', balance: money(remaining) });
 }
 
@@ -94,7 +96,7 @@ async function payCreditCard(req, res) {
   const amount = cents(req.body.amount);
   if (!amount) return res.status(400).json({ error: 'Enter a valid payment amount.' });
   const dbSession = await mongoose.startSession();
-  let cardBalance;
+  let cardBalance, paymentEntryId;
   try {
     await dbSession.withTransaction(async () => {
       const card = await Card.findOne({ userId: req.session.user.id, cardType: 'credit' }).session(dbSession);
@@ -109,12 +111,13 @@ async function payCreditCard(req, res) {
       await card.save({ session: dbSession });
       await account.save({ session: dbSession });
       await CardTransaction.create([{ userId: req.session.user.id, cardId: card._id, kind: 'payment', amountCents: amount, description: 'Credit card payment', category: 'Payment' }], { session: dbSession });
-      await LedgerEntry.create([{ transferGroup: `card-payment-${Date.now()}`, accountId: account._id, kind: 'card_payment', amountCents: amount, balanceAfterCents: account.balanceCents, description: 'Credit card payment', category: 'Other' }], { session: dbSession });
+      const [paymentLedger] = await LedgerEntry.create([{ transferGroup: `card-payment-${Date.now()}`, accountId: account._id, kind: 'card_payment', amountCents: amount, balanceAfterCents: account.balanceCents, description: 'Credit card payment', category: 'Other' }], { session: dbSession });
+      paymentEntryId = paymentLedger._id;
       await notify(req.session.user.id, 'Credit card payment', `A $${money(amount)} payment was made.`, dbSession);
     });
   } catch (err) { if (err.status) return res.status(err.status).json({ error: err.message }); throw err; }
   finally { await dbSession.endSession(); }
-  await sendTransactionAlert(req.session.user.id, 'Credit card payment', `A $${money(amount)} payment was made from checking.`);
+  queueEntryAlert(paymentEntryId);
   res.json({ message: 'Credit card payment recorded.', cardBalance: money(cardBalance) });
 }
 

@@ -1,10 +1,12 @@
 const express=require('express');
 const controller=require('../controllers/supportController');
 const {requireAuth,requireAdmin,requirePermission,requireAuditReason}=require('../middleware/sessionAccess');
+const {supportLimiter}=require('../middleware/rateLimiters');
 const router=express.Router();
-router.post('/support/tickets',controller.createTicket);
+router.post('/support/tickets',supportLimiter,controller.createTicket);
+router.post('/support/tickets/:id/reply',requireAuth,supportLimiter,controller.replyMine);
 router.get('/support/tickets',requireAuth,controller.listMine);
-router.post('/assistant/chat',controller.chat);
+router.post('/assistant/chat',supportLimiter,controller.chat);
 router.get('/admin/support/tickets',requireAuth,requireAdmin,requirePermission('owner','operations'),controller.listAdmin);
 router.post('/admin/support/tickets/:id/reply',requireAuth,requireAdmin,requirePermission('owner','operations'),requireAuditReason,controller.replyAdmin);
 router.patch('/admin/support/tickets/:id/status',requireAuth,requireAdmin,requirePermission('owner','operations'),requireAuditReason,controller.updateStatus);

@@ -18,4 +18,13 @@ const otpLimiter = rateLimit({
   message: { error: 'Too many attempts. Please wait a few minutes and try again.' }
 });
 
-module.exports = { apiLimiter, emailLimiter, otpLimiter };
+const lookupLimiter = rateLimit({
+  ...shared, windowMs: 10 * 60 * 1000, limit: 60,
+  message: { error: 'Too many account look-ups. Please wait a few minutes.' }
+});
+const supportLimiter = rateLimit({
+  ...shared, windowMs: 60 * 60 * 1000, limit: 20,
+  message: { error: 'Too many support messages. Please try again later.' }
+});
+
+module.exports = { apiLimiter, emailLimiter, otpLimiter, lookupLimiter, supportLimiter };

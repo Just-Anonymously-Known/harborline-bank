@@ -21,7 +21,7 @@ const { sendTransactionAlert } = require('../services/emailAlertService');
 const { statementHtml } = require('../services/statementService');
 const { mapLimit } = require('../utils/async');
 const { renderEmail } = require('../services/emailTemplates');
-const { sendFundingReceipt } = require('../services/fundingReceiptService');
+const { sendFundingReceipt, queueEntryAlert } = require('../services/fundingReceiptService');
 
 const DEFAULT_DAILY_TRANSFER_LIMIT_CENTS = 100000;
 
@@ -747,9 +747,8 @@ async function resolveTransferReview(req, res) {
 
   const dbSession = await mongoose.startSession();
 
-  let senderName;
-  let recipientName;
-  let recipientId;
+  let outEntryId;
+  let inEntryId;
 
   try {
     await dbSession.withTransaction(async () => {
@@ -816,10 +815,6 @@ async function resolveTransferReview(req, res) {
         );
       }
 
-      senderName = sender.name;
-      recipientName = recipient.name;
-      recipientId = recipient._id;
-
       from.balanceCents -= review.amountCents;
       to.balanceCents += review.amountCents;
 
@@ -828,7 +823,7 @@ async function resolveTransferReview(req, res) {
 
       const transferGroup = crypto.randomUUID();
 
-      await LedgerEntry.create([
+      const created = await LedgerEntry.create([
         {
           transferGroup,
           accountId: from._id,
@@ -855,6 +850,9 @@ async function resolveTransferReview(req, res) {
         session: dbSession,
         ordered: true
       });
+
+      outEntryId = created[0]._id;
+      inEntryId = created[1]._id;
 
       review.status = 'approved';
       review.reviewReason = req.auditReason;
@@ -892,24 +890,8 @@ async function resolveTransferReview(req, res) {
     await dbSession.endSession();
   }
 
-  await Promise.all([
-    sendSafely(
-      () => sendTransactionAlert(
-        review.userId,
-        'Transfer approved',
-        `$${money(review.amountCents)} sent to ${recipientName}.`
-      ),
-      'Sender transfer email'
-    ),
-    sendSafely(
-      () => sendTransactionAlert(
-        recipientId,
-        'Transfer received',
-        `$${money(review.amountCents)} received from ${senderName}.`
-      ),
-      'Recipient transfer email'
-    )
-  ]);
+  queueEntryAlert(outEntryId);
+  queueEntryAlert(inEntryId);
 
   await recordAdminAction(req, 'approve_transfer_review', review._id, {
     amount: money(review.amountCents)

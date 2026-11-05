@@ -29,6 +29,17 @@ const KINDS = {
   card_payment: { credit: false, header: 'PAYMENT RECEIPT', title: 'Credit card payment', lead: 'This receipt confirms a payment made toward your Harborline credit card.', amountLabel: 'AMOUNT PAID', partyLabel: 'Paid to', party: () => 'Harborline credit card' }
 };
 
+// Wording of the alert email for each kind of entry. ctx: { amount, cp, desc, acct, mask }
+const ALERTS = {
+  funding: { title: 'Credit alert: funds added', subject: c => `Credit alert: ${c.amount} added to your Harborline account`, message: c => `${c.amount} was credited to your ${c.acct} account (${c.mask}).` },
+  transfer_in: { title: 'Credit alert: money received', subject: c => `Credit alert: ${c.amount} received from ${c.cp}`, message: c => `${c.amount} was received from ${c.cp} in your ${c.acct} account (${c.mask}).` },
+  transfer_out: { title: 'Debit alert: money sent', subject: c => `Debit alert: ${c.amount} sent to ${c.cp}`, message: c => `${c.amount} was sent to ${c.cp} from your ${c.acct} account (${c.mask}).` },
+  card_purchase: { title: 'Debit alert: card purchase', subject: c => `Debit alert: ${c.amount} spent at ${c.desc}`, message: c => `${c.amount} was spent at ${c.desc} from your ${c.acct} account (${c.mask}).` },
+  card_payment: { title: 'Debit alert: credit card payment', subject: c => `Debit alert: ${c.amount} paid to your credit card`, message: c => `${c.amount} was paid from your ${c.acct} account (${c.mask}) toward your credit card.` },
+  goal_contribution: { title: 'Debit alert: moved to savings goal', subject: c => `Debit alert: ${c.amount} moved to a savings goal`, message: c => `${c.amount} was moved from your ${c.acct} account (${c.mask}) into a savings goal.` },
+  goal_withdrawal: { title: 'Credit alert: moved from savings goal', subject: c => `Credit alert: ${c.amount} moved back to checking`, message: c => `${c.amount} was moved from a savings goal into your ${c.acct} account (${c.mask}).` }
+};
+
 // The built-in PDF fonts only cover Western characters; swap anything else for "?"
 // so an unusual name can never break receipt generation.
 function pdfSafe(value) {
@@ -56,7 +67,7 @@ function formatMoney(amountCents, currency = 'USD') {
 }
 
 function shortReference(reference) {
-  return String(reference || '').replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase() || 'RECEIPT';
+  return String(reference || '').replace(/[^a-z0-9]/gi, '').slice(-8).toUpperCase() || 'RECEIPT';
 }
 
 /**
@@ -196,14 +207,20 @@ function drawDetail(doc, label, value, x, y, width) {
 }
 
 /**
- * Emails the customer a "credit alert" for an administrator funding, with a PDF receipt attached
+ * Emails the customer a credit or debit alert for one ledger entry, with a PDF receipt attached
  * and a link that opens the receipt after sign-in. Respects the customer's alert preference.
- * Never throws for a missing/opted-out customer; throws if the email itself cannot be sent.
+ * Resolves with { skipped: true } for an unknown/opted-out customer; throws if the email cannot be sent.
+ *
+ *   userId, account, kind ('funding' | 'transfer_in' | 'transfer_out' | 'card_purchase' | ...)
+ *   amountCents, balanceAfterCents, description, counterparty, category
+ *   transactionId (ledger entry id, used for the receipt link), reference (transfer group), transactionDate
  */
-async function sendFundingReceipt({ user, account, amountCents, balanceAfterCents, description, transactionId, reference, transactionDate }) {
-  const customer = await User.findOne({ _id: user.id, verified: true, transactionAlerts: true }).select('name email').lean();
+async function sendTransactionReceipt({ userId, account, kind, amountCents, balanceAfterCents, description, counterparty, category, transactionId, reference, transactionDate }) {
+  const customer = await User.findOne({ _id: userId, verified: true, transactionAlerts: true }).select('name email').lean();
   if (!customer) return { skipped: true };
 
+  const config = KINDS[kind] || KINDS.funding;
+  const alert = ALERTS[kind] || ALERTS.funding;
   const currency = account.currency || 'USD';
   const createdAt = transactionDate || new Date();
   const amountText = formatMoney(amountCents, currency);
@@ -211,23 +228,27 @@ async function sendFundingReceipt({ user, account, amountCents, balanceAfterCent
   const accountMasked = maskAccountNumber(account.accountNumber);
   const link = appUrl() && transactionId ? `${appUrl()}/#receipt=${transactionId}` : undefined;
   const firstName = String(customer.name || '').trim().split(/\s+/)[0] || 'there';
+  const ctx = { amount: amountText, cp: counterparty || 'a Harborline customer', desc: description || 'a merchant', acct: accountLabel, mask: accountMasked };
+  const message = alert.message(ctx);
+  const subject = alert.subject(ctx).replace(/[\r\n]+/g, ' ').slice(0, 150);
 
   let attachments;
   try {
+    const hasBalance = Number.isSafeInteger(balanceAfterCents);
     const pdf = await generateReceipt({
-      customer, account, amount: amountCents, balance: balanceAfterCents, previousBalance: balanceAfterCents - amountCents,
-      entry: { kind: 'funding', reference: reference || transactionId, createdAt, description }
+      customer, account, amount: amountCents, balance: hasBalance ? balanceAfterCents : undefined,
+      previousBalance: hasBalance ? balanceAfterCents + (config.credit ? -amountCents : amountCents) : undefined,
+      entry: { kind, reference: reference || transactionId, createdAt, description, category, counterparty }
     });
     attachments = [{ filename: `harborline-receipt-${shortReference(reference || transactionId)}.pdf`, content: pdf, contentType: 'application/pdf' }];
   } catch (error) {
-    console.error('Funding receipt PDF could not be generated:', error.message);
+    console.error('Receipt PDF could not be generated:', error.message);
   }
 
-  const message = `${amountText} was credited to your ${accountLabel} account (${accountMasked}).`;
   const text = [
-    `Hi ${firstName},`, '', `Credit alert: ${message}`,
+    `Hi ${firstName},`, '', alert.title, message,
     description ? `Description: ${description}` : '',
-    `New balance: ${formatMoney(balanceAfterCents, currency)}`,
+    Number.isSafeInteger(balanceAfterCents) ? `New balance: ${formatMoney(balanceAfterCents, currency)}` : '',
     `Reference: ${reference || transactionId || ''}`,
     link ? `\nView your receipt (PDF): ${link}` : '',
     attachments ? 'A PDF copy of your receipt is attached.' : '',
@@ -236,14 +257,15 @@ async function sendFundingReceipt({ user, account, amountCents, balanceAfterCent
 
   const html = renderEmail({
     preheader: message,
-    title: 'Credit alert: funds added',
+    title: alert.title,
     intro: `Hi ${firstName}, ${message}`,
-    amount: `+${amountText}`,
-    tone: 'credit',
+    amount: `${config.credit ? '+' : '-'}${amountText}`,
+    tone: config.credit ? 'credit' : 'debit',
     rows: [
       ['Description', description],
+      [config.partyLabel, config.party({ counterparty, description })],
       ['Account', `${accountLabel} (${accountMasked})`],
-      ['New balance', formatMoney(balanceAfterCents, currency)],
+      Number.isSafeInteger(balanceAfterCents) ? ['New balance', formatMoney(balanceAfterCents, currency)] : null,
       ['Date (UTC)', formatDate(createdAt)],
       ['Reference', reference || transactionId]
     ],
@@ -252,11 +274,33 @@ async function sendFundingReceipt({ user, account, amountCents, balanceAfterCent
     note: attachments ? 'A PDF copy of your receipt is attached to this email.' : undefined
   });
 
-  return sendMail({
-    to: customer.email,
-    subject: `Credit alert: ${amountText} added to your Harborline account`,
-    text, html, attachments
+  return sendMail({ to: customer.email, subject, text, html, attachments });
+}
+
+/** Funding alert sent by the administrator funding flow. */
+function sendFundingReceipt({ user, account, amountCents, balanceAfterCents, description, transactionId, reference, transactionDate }) {
+  return sendTransactionReceipt({ userId: user.id, account, kind: 'funding', amountCents, balanceAfterCents, description, transactionId, reference, transactionDate });
+}
+
+/** Loads a ledger entry by id and sends its alert. */
+async function sendEntryAlert(entryId) {
+  const LedgerEntry = require('../models/LedgerEntry');
+  const Account = require('../models/Account');
+  const entry = await LedgerEntry.findById(entryId).lean();
+  if (!entry) return { skipped: true };
+  const account = await Account.findById(entry.accountId).lean();
+  if (!account) return { skipped: true };
+  return sendTransactionReceipt({
+    userId: account.userId, account, kind: entry.kind, amountCents: entry.amountCents, balanceAfterCents: entry.balanceAfterCents,
+    description: entry.description, counterparty: entry.counterpartyName, category: entry.category,
+    transactionId: String(entry._id), reference: entry.transferGroup, transactionDate: entry.createdAt
   });
 }
 
-module.exports = { generateReceipt, generateFundingReceipt, sendFundingReceipt, formatMoney };
+/** Fire-and-forget version: never delays a response and never throws. */
+function queueEntryAlert(entryId) {
+  if (!entryId) return;
+  sendEntryAlert(entryId).catch(error => console.error('Transaction alert email failed:', error.message));
+}
+
+module.exports = { generateReceipt, generateFundingReceipt, sendFundingReceipt, sendTransactionReceipt, sendEntryAlert, queueEntryAlert, formatMoney };

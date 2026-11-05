@@ -14,6 +14,18 @@ async function listAccounts(req, res) {
   })) });
 }
 
+
+async function lookupAccount(req, res) {
+  const number = String(req.params.number || '').replace(/\s/g, '');
+  if (!/^\d{10}$/.test(number)) return res.status(400).json({ error: 'Enter a 10-digit account number.' });
+  const User = require('../models/User');
+  const account = await Account.findOne({ accountNumber: number }).select('userId status accountType').lean();
+  const owner = account ? await User.findOne({ _id: account.userId, verified: true }).select('name').lean() : null;
+  if (!account || !owner) return res.status(404).json({ error: 'No Harborline account matches this number.' });
+  if (String(account.userId) === String(req.session.user.id)) return res.json({ own: true, name: owner.name, active: account.status === 'active', message: 'This is one of your own accounts. Use Move money between my accounts instead.' });
+  res.json({ own: false, name: owner.name, active: account.status === 'active', accountType: account.accountType });
+}
+
 async function openSavings(req, res) {
   if (await Account.exists({ userId: req.session.user.id, accountType: 'savings' })) return res.status(409).json({ error: 'You already have a savings account.' });
   const nickname = String(req.body.nickname || 'Savings').trim().slice(0, 40) || 'Savings';
@@ -59,4 +71,4 @@ async function transferBetweenAccounts(req, res) {
   res.json({ message: 'Transfer between your accounts complete.', balance: money(balance) });
 }
 
-module.exports = { listAccounts, openSavings, renameAccount, transferBetweenAccounts };
+module.exports = { lookupAccount, listAccounts, openSavings, renameAccount, transferBetweenAccounts };
