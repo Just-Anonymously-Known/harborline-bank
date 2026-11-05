@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const crypto = require('crypto');
 const LedgerEntry = require('../models/LedgerEntry');
 const { createAccountNumber } = require('../config/database');
-const { cents, money } = require('../utils/finance');
+const { cents, money, fmtMoney } = require('../utils/finance');
 const { sendTransactionAlert } = require('../services/emailAlertService');
 
 async function listAccounts(req, res) {
@@ -67,7 +67,7 @@ async function transferBetweenAccounts(req, res) {
     });
   } catch (error) { if (error.status) return res.status(error.status).json({ error: error.message }); throw error; }
   finally { await dbSession.endSession(); }
-  await sendTransactionAlert(req.session.user.id, 'Transfer between accounts', `$${money(amount)} moved from ${fromName} to ${toName}.`);
+  await sendTransactionAlert(req.session.user.id, 'Transfer between accounts', `$${fmtMoney(amount)} moved from ${fromName} to ${toName}.`);
   res.json({ message: 'Transfer between your accounts complete.', balance: money(balance) });
 }
 

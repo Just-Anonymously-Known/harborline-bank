@@ -9,7 +9,7 @@ const CardTransaction = require('../models/CardTransaction');
 const Card = require('../models/Card');
 const { notify } = require('../services/notificationService');
 const { sendTransactionAlert } = require('../services/emailAlertService');
-const { cents, money } = require('../utils/finance');
+const { cents, money, fmtMoney } = require('../utils/finance');
 const { safeUser } = require('../utils/identity');
 const { statementHtml } = require('../services/statementService');
 const ScheduledTransfer = require('../models/ScheduledTransfer');
@@ -209,13 +209,13 @@ async function transfer(req, res) {
         { $match: { accountId: { $in: accountIds }, kind: 'transfer_out', createdAt: { $gte: startOfDay } } },
         { $group: { _id: null, total: { $sum: '$amountCents' } } }
       ]).session(dbSession);
-      if ((totals[0]?.total || 0) + amount > dailyLimit) throw Object.assign(new Error(`This transfer exceeds your daily limit of $${money(dailyLimit)}.`), { status: 400 });
+      if ((totals[0]?.total || 0) + amount > dailyLimit) throw Object.assign(new Error(`This transfer exceeds your daily limit of $${fmtMoney(dailyLimit)}.`), { status: 400 });
       if (user.transferReviewThresholdCents > 0 && amount >= user.transferReviewThresholdCents) {
         await TransferReview.create([{
           userId: user._id, fromAccountId: from._id, toAccountId: to._id,
           amountCents: amount, memo, category, status: 'pending'
         }], { session: dbSession });
-        await notify(user._id, 'Transfer awaiting review', `Your $${money(amount)} transfer is awaiting administrator review.`, dbSession);
+        await notify(user._id, 'Transfer awaiting review', `Your $${fmtMoney(amount)} transfer is awaiting administrator review.`, dbSession);
         reviewPending = true;
         return;
       }
@@ -234,8 +234,8 @@ async function transfer(req, res) {
         { transferGroup, accountId: to._id, counterpartyAccountId: from._id, counterpartyName: senderUser?.name || 'Harborline customer', kind: 'transfer_in', amountCents: amount, balanceAfterCents: to.balanceCents, description: memo, category }
       ], { session: dbSession, ordered: true });
       outEntryId = created[0]._id; inEntryId = created[1]._id; createdAt = created[0].createdAt;
-      await notify(user._id, 'Transfer sent', `$${money(amount)} sent to ${recipientUser.name}.`, dbSession);
-      await notify(recipientUser._id, 'Transfer received', `$${money(amount)} received from ${senderUser?.name || 'a Harborline customer'}.`, dbSession);
+      await notify(user._id, 'Transfer sent', `$${fmtMoney(amount)} sent to ${recipientUser.name}.`, dbSession);
+      await notify(recipientUser._id, 'Transfer received', `$${fmtMoney(amount)} received from ${senderUser?.name || 'a Harborline customer'}.`, dbSession);
     });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });

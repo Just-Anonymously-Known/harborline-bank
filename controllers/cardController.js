@@ -4,7 +4,7 @@ const Card = require('../models/Card');
 const CardTransaction = require('../models/CardTransaction');
 const Account = require('../models/Account');
 const LedgerEntry = require('../models/LedgerEntry');
-const { cents, money } = require('../utils/finance');
+const { cents, money, fmtMoney } = require('../utils/finance');
 const { notify } = require('../services/notificationService');
 const { sendTransactionAlert } = require('../services/emailAlertService');
 const { queueEntryAlert } = require('../services/fundingReceiptService');
@@ -57,7 +57,7 @@ async function debitPurchase(req, res) {
       }], { session: dbSession });
       entryId = ledger._id;
       await CardTransaction.create([{ userId: req.session.user.id, cardId: card._id, kind: 'purchase', amountCents: amount, description, category }], { session: dbSession });
-      await notify(req.session.user.id, 'Debit card purchase', `$${money(amount)} at ${description}.`, dbSession);
+      await notify(req.session.user.id, 'Debit card purchase', `$${fmtMoney(amount)} at ${description}.`, dbSession);
     });
   } catch (err) { if (err.status) return res.status(err.status).json({ error: err.message }); throw err; }
   finally { await dbSession.endSession(); }
@@ -84,11 +84,11 @@ async function creditPurchase(req, res) {
       balance = card.balanceCents;
       await card.save({ session: dbSession });
       await CardTransaction.create([{ userId: req.session.user.id, cardId: card._id, kind: 'purchase', amountCents: amount, description, category }], { session: dbSession });
-      await notify(req.session.user.id, 'Credit card purchase', `$${money(amount)} at ${description}.`, dbSession);
+      await notify(req.session.user.id, 'Credit card purchase', `$${fmtMoney(amount)} at ${description}.`, dbSession);
     });
   } catch (err) { if (err.status) return res.status(err.status).json({ error: err.message }); throw err; }
   finally { await dbSession.endSession(); }
-  await sendTransactionAlert(req.session.user.id, 'Credit card purchase', `$${money(amount)} at ${description}.`);
+  await sendTransactionAlert(req.session.user.id, 'Credit card purchase', `$${fmtMoney(amount)} at ${description}.`);
   res.json({ message: 'Card purchase recorded.', balance: money(balance) });
 }
 
@@ -113,7 +113,7 @@ async function payCreditCard(req, res) {
       await CardTransaction.create([{ userId: req.session.user.id, cardId: card._id, kind: 'payment', amountCents: amount, description: 'Credit card payment', category: 'Payment' }], { session: dbSession });
       const [paymentLedger] = await LedgerEntry.create([{ transferGroup: `card-payment-${Date.now()}`, accountId: account._id, kind: 'card_payment', amountCents: amount, balanceAfterCents: account.balanceCents, description: 'Credit card payment', category: 'Other' }], { session: dbSession });
       paymentEntryId = paymentLedger._id;
-      await notify(req.session.user.id, 'Credit card payment', `A $${money(amount)} payment was made.`, dbSession);
+      await notify(req.session.user.id, 'Credit card payment', `A $${fmtMoney(amount)} payment was made.`, dbSession);
     });
   } catch (err) { if (err.status) return res.status(err.status).json({ error: err.message }); throw err; }
   finally { await dbSession.endSession(); }

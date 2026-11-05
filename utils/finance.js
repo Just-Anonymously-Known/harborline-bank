@@ -10,4 +10,9 @@ function money(amountCents) {
   return (Number(amountCents) / 100).toFixed(2);
 }
 
-module.exports = { cents, money };
+// Human-readable amount with thousands separators, e.g. 1,000,000.00 (for messages, emails and receipts).
+function fmtMoney(amountCents) {
+  return (Number(amountCents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+module.exports = { cents, money, fmtMoney };

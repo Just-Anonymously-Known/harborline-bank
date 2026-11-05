@@ -10,7 +10,7 @@ const MailLog = require('../models/MailLog');
 const AuditLog = require('../models/AuditLog');
 const TransferReview = require('../models/TransferReview');
 
-const { cents, money } = require('../utils/finance');
+const { cents, money, fmtMoney } = require('../utils/finance');
 const { escapeHtml, isStrongPassword } = require('../utils/identity');
 
 const { sendMail, mailer, checkMailer } = require('../services/emailService');
@@ -259,7 +259,7 @@ async function fundAccount(req, res) {
       await notify(
         owner._id,
         'Funds added',
-        `$${money(amount)} added to ${account.nickname || account.accountType}.`,
+        `$${fmtMoney(amount)} added to ${account.nickname || account.accountType}.`,
         dbSession
       );
     });
@@ -306,7 +306,7 @@ async function fundAccount(req, res) {
   );
 
   res.json({
-    message: `Added $${money(amount)}.`,
+    message: `Added $${fmtMoney(amount)}.`,
     balance: money(balanceAfter),
     transactionId: ledgerEntryId
   });
@@ -654,7 +654,7 @@ async function setTransferReviewThreshold(req, res) {
 
   res.json({
     message: threshold
-      ? `Transfers of $${money(threshold)} or more will require review.`
+      ? `Transfers of $${fmtMoney(threshold)} or more will require review.`
       : 'Transfer review threshold disabled.'
   });
 }
@@ -864,14 +864,14 @@ async function resolveTransferReview(req, res) {
       await notify(
         sender._id,
         'Transfer approved',
-        `$${money(review.amountCents)} sent to ${recipient.name}.`,
+        `$${fmtMoney(review.amountCents)} sent to ${recipient.name}.`,
         dbSession
       );
 
       await notify(
         recipient._id,
         'Transfer received',
-        `$${money(review.amountCents)} received from ${sender.name}.`,
+        `$${fmtMoney(review.amountCents)} received from ${sender.name}.`,
         dbSession
       );
     });

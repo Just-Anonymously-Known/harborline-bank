@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const Account = require('../models/Account');
 const LedgerEntry = require('../models/LedgerEntry');
 const SavingsGoal = require('../models/SavingsGoal');
-const { cents, money } = require('../utils/finance');
+const { cents, money, fmtMoney } = require('../utils/finance');
 const { notify } = require('../services/notificationService');
 const { sendTransactionAlert } = require('../services/emailAlertService');
 
@@ -41,12 +41,12 @@ async function contribute(req, res) {
         transferGroup: `goal-${goal._id}-${Date.now()}`, accountId: account._id, kind: 'goal_contribution',
         amountCents: amount, balanceAfterCents: account.balanceCents, description: `Saved for ${goal.name}`, category: 'Other'
       }], { session: dbSession });
-      await notify(req.session.user.id, 'Savings goal updated', `$${money(amount)} added to ${goal.name}.`, dbSession);
+      await notify(req.session.user.id, 'Savings goal updated', `$${fmtMoney(amount)} added to ${goal.name}.`, dbSession);
     });
   } catch (err) { if (err.status) return res.status(err.status).json({ error: err.message }); throw err; }
   finally { await dbSession.endSession(); }
   const goal = await SavingsGoal.findById(req.params.id).select('name');
-  await sendTransactionAlert(req.session.user.id, 'Savings goal contribution', `$${money(amount)} was added to ${goal?.name || 'your savings goal'}.`);
+  await sendTransactionAlert(req.session.user.id, 'Savings goal contribution', `$${fmtMoney(amount)} was added to ${goal?.name || 'your savings goal'}.`);
   res.json({ message: 'Contribution added.', saved: money(saved) });
 }
 
@@ -75,7 +75,7 @@ async function withdraw(req, res) {
   } catch (err) { if (err.status) return res.status(err.status).json({ error: err.message }); throw err; }
   finally { await dbSession.endSession(); }
   const goal = await SavingsGoal.findById(req.params.id).select('name');
-  await sendTransactionAlert(req.session.user.id, 'Savings goal withdrawal', `$${money(amount)} was moved back to checking from ${goal?.name || 'your savings goal'}.`);
+  await sendTransactionAlert(req.session.user.id, 'Savings goal withdrawal', `$${fmtMoney(amount)} was moved back to checking from ${goal?.name || 'your savings goal'}.`);
   res.json({ message: 'Funds moved back to checking.', saved: money(saved) });
 }
 

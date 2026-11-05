@@ -1,7 +1,7 @@
 const PDFDocument = require('pdfkit');
 
 const User = require('../models/User');
-const { money } = require('../utils/finance');
+const { money, fmtMoney } = require('../utils/finance');
 const { appUrl } = require('../utils/origins');
 const { sendMail } = require('./emailService');
 const { renderEmail } = require('./emailTemplates');
@@ -63,7 +63,7 @@ function formatDate(date) {
 }
 
 function formatMoney(amountCents, currency = 'USD') {
-  return currency === 'USD' ? `$${money(amountCents)}` : `${currency} ${money(amountCents)}`;
+  return currency === 'USD' ? `$${fmtMoney(amountCents)}` : `${currency} ${money(amountCents)}`;
 }
 
 function shortReference(reference) {
@@ -105,8 +105,8 @@ async function generateReceipt({ customer, account, entry, amount, balance, prev
     ['Customer email', safeText(customer.email)]
   ];
   if (account) accountRows.push(['Account', `${safeText(account.nickname || account.accountType)} (${maskAccountNumber(account.accountNumber)})`]);
-  if (hasPrevious) accountRows.push(['Previous balance', `${currency} ${money(previousBalance)}`]);
-  if (hasBalance) accountRows.push(['Balance after transaction', `${currency} ${money(balance)}`]);
+  if (hasPrevious) accountRows.push(['Previous balance', `${currency} ${fmtMoney(previousBalance)}`]);
+  if (hasBalance) accountRows.push(['Balance after transaction', `${currency} ${fmtMoney(balance)}`]);
 
   return new Promise((resolve, reject) => {
     try {
@@ -146,7 +146,7 @@ async function generateReceipt({ customer, account, entry, amount, balance, prev
       doc.roundedRect(left, panelY, contentWidth, 92, 8).fill(BRAND.lightBlue);
       doc.fillColor(BRAND.muted).font('Helvetica').fontSize(9).text(kind.amountLabel, left + 18, panelY + 17, { lineBreak: false });
       doc.fillColor(kind.credit ? BRAND.green : BRAND.navy).font('Helvetica-Bold').fontSize(27)
-        .text(`${kind.credit ? '+' : '-'}${currency} ${money(amount)}`, left + 18, panelY + 36, { lineBreak: false });
+        .text(`${kind.credit ? '+' : '-'}${currency} ${fmtMoney(amount)}`, left + 18, panelY + 36, { lineBreak: false });
 
       // Sections
       let y = 330;

@@ -4,7 +4,7 @@ const ScheduledTransfer = require('../models/ScheduledTransfer');
 const Account = require('../models/Account');
 const User = require('../models/User');
 const LedgerEntry = require('../models/LedgerEntry');
-const { money } = require('../utils/finance');
+const { money, fmtMoney } = require('../utils/finance');
 const { notify } = require('./notificationService');
 const { queueEntryAlert } = require('./fundingReceiptService');
 
@@ -50,8 +50,8 @@ async function processDueTransfers() {
         outEntryId = created[0]._id; inEntryId = created[1]._id;
         job.status = 'completed'; job.processingAt = undefined; await job.save({ session: dbSession });
         completed = true;
-        await notify(owner._id, 'Scheduled transfer sent', `$${money(job.amountCents)} sent to ${recipient.name}.`, dbSession);
-        await notify(recipient._id, 'Transfer received', `$${money(job.amountCents)} received from ${owner.name}.`, dbSession);
+        await notify(owner._id, 'Scheduled transfer sent', `$${fmtMoney(job.amountCents)} sent to ${recipient.name}.`, dbSession);
+        await notify(recipient._id, 'Transfer received', `$${fmtMoney(job.amountCents)} received from ${owner.name}.`, dbSession);
       });
       if (completed) {
         queueEntryAlert(outEntryId);
